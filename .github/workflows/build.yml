@@ -1,9 +1,16 @@
-name: Build library
+name: Build and publish library
 
 on:
   push:
     branches: [ main ]
   workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-and-publish
+  cancel-in-progress: true
 
 jobs:
   build:
@@ -24,3 +31,16 @@ jobs:
 
       - name: Build library
         run: npm run build
+
+      - name: Upload dist artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist
+
+      - name: Publish dist to gh-pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./dist
+          force_orphan: true
