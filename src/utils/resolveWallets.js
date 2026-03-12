@@ -1,0 +1,82 @@
+function getWindowSafe() {
+  return typeof window !== 'undefined' ? window : null;
+}
+
+function getUserAgent() {
+  if (typeof navigator === 'undefined') return '';
+  return navigator.userAgent || '';
+}
+
+function isOKXInAppBrowser() {
+  const win = getWindowSafe();
+  const ua = getUserAgent();
+
+  return !!(
+    win?.okxwallet ||
+    /OKX|OKApp/i.test(ua)
+  );
+}
+
+function isBinanceInAppBrowser() {
+  const win = getWindowSafe();
+  const ua = getUserAgent();
+
+  return !!(
+    win?.binancew3w ||
+    win?.BinanceChain ||
+    /Binance/i.test(ua)
+  );
+}
+
+function isTrustInAppBrowser() {
+  const win = getWindowSafe();
+  const ua = getUserAgent();
+
+  return !!(
+    win?.trustwallet ||
+    win?.trustWallet ||
+    /Trust|TrustWallet/i.test(ua)
+  );
+}
+
+export function resolveDetectedWallets(input = {}) {
+  const wallets = {
+    tronlink: Boolean(input.tronlink),
+    okx: Boolean(input.okx),
+    binance: Boolean(input.binance),
+    trust: Boolean(input.trust),
+    generic: Boolean(input.generic)
+  };
+
+  if (wallets.okx && isOKXInAppBrowser()) {
+    return {
+      tronlink: false,
+      okx: true,
+      binance: false,
+      trust: false,
+      generic: false
+    };
+  }
+
+  if (wallets.binance && isBinanceInAppBrowser()) {
+    return {
+      tronlink: false,
+      okx: false,
+      binance: true,
+      trust: false,
+      generic: false
+    };
+  }
+
+  if (wallets.trust && isTrustInAppBrowser()) {
+    return {
+      tronlink: false,
+      okx: false,
+      binance: false,
+      trust: true,
+      generic: false
+    };
+  }
+
+  return wallets;
+}
