@@ -1,180 +1,45 @@
-function getWindowSafe() {
-  return typeof window !== 'undefined' ? window : null;
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function normalizeAddress(address) {
-  if (!address || typeof address !== 'string') {
-    return null;
+async function waitForAddress(tronWeb, timeout = 5000) {
+  const started = Date.now();
+
+  while (Date.now() - started < timeout) {
+    const addr = tronWeb?.defaultAddress?.base58;
+
+    if (addr) {
+      return addr;
+    }
+
+    await sleep(150);
   }
 
-  const trimmed = address.trim();
-  return trimmed || null;
-}
-
-function resolveTronWeb(tronWeb) {
-  if (tronWeb && typeof tronWeb === 'object') {
-    return tronWeb;
-  }
-
-  const win = getWindowSafe();
-  return win?.tronWeb || null;
-}
-
-async function getBalanceFromRPC(tronWeb, address) {
-  try {
-    if (!tronWeb?.trx || typeof tronWeb.trx.getBalance !== 'function') {
-      return null;
-    }
-
-    const rawBalance = await tronWeb.trx.getBalance(address);
-
-    if (rawBalance === null || rawBalance === undefined) {
-      return null;
-    }
-
-    const numeric = Number(rawBalance);
-    if (!Number.isFinite(numeric)) {
-      return null;
-    }
-
-    return numeric / 1e6;
-  } catch (error) {
-    console.warn('[Wallet RPC failed]', error);
-    return null;
-  }
-}
-
-async function getBalanceFromTrongrid(address) {
-  try {
-    const response = await fetch(`https://api.trongrid.io/v1/accounts/${address}`, {
-      method: 'GET',
-      cache: 'no-store'
-    });
-
-    if (!response.ok) {
-      throw new Error(`Trongrid error: ${response.status}`);
-    }
-
-    const json = await response.json();
-    const rawBalance = json?.data?.[0]?.balance ?? null;
-
-    if (rawBalance === null || rawBalance === undefined) {
-      return null;
-    }
-
-    const numeric = Number(rawBalance);
-    if (!Number.isFinite(numeric)) {
-      return null;
-    }
-
-    return numeric / 1e6;
-  } catch (error) {
-    console.warn('[Trongrid fallback failed]', error);
-    return null;
-  }
+  return null;
 }
 
 export async function getTRXBalance(tronWeb, address) {
-  const safeAddress = normalizeAddress(address);
-  if (!safeAddress) {
+  if (!tronWeb) {
     return null;
   }
 
-  const resolvedTronWeb = resolveTronWeb(tronWeb);
+  let addr = address || tronWeb?.defaultAddress?.base58;
 
-  const rpcBalance = await getBalanceFromRPC(resolvedTronWeb, safeAddress);
-  if (rpcBalance !== null) {
-    return rpcBalance;
+  if (!addr) {
+    addr = await waitForAddress(tronWeb);
   }
 
-  return getBalanceFromTrongrid(safeAddress);
-}
-
-export async function waitForTronWebAddress(tronWeb, options = {}) {
-  const {
-    timeoutMs = 10000,
-    delayMs = 200
-  } = options;
-
-  const startedAt = Date.now();
-
-  while (Date.now() - startedAt < timeoutMs) {
-    const resolvedTronWeb = resolveTronWeb(tronWeb);
-    const address = resolvedTronWeb?.defaultAddress?.base58 || null;
-
-    if (address) {
-      return {
-        tronWeb: resolvedTronWeb,
-        address
-      };
-    }
-
-    await new Promise((resolve) => setTimeout(resolve, delayMs));
+  if (!addr) {
+    console.warn('[FourteenWallet] address not ready yet');
+    return null;
   }
 
-  return {
-    tronWeb: resolveTronWeb(tronWeb),
-    address: null
-  };
-}
-
-export async function waitForTronWebReady(tronWeb, options = {}) {
-  const {
-    timeoutMs = 10000,
-    delayMs = 200,
-    requireAddress = true
-  } = options;
-
-  const startedAt = Date.now();
-
-  while (Date.now() - startedAt < timeoutMs) {
-    const resolvedTronWeb = resolveTronWeb(tronWeb);
-    const isReady = !!resolvedTronWeb?.ready;
-    const address = resolvedTronWeb?.defaultAddress?.base58 || null;
-
-    if (resolvedTronWeb && isReady && (!requireAddress || address)) {
-      return {
-        tronWeb: resolvedTronWeb,
-        address
-      };
-    }
-
-    await new Promise((resolve) => setTimeout(resolve, delayMs));
+  try {
+    const sun = await tronWeb.trx.getBalance(addr);
+    const trx = tronWeb.fromSun(sun);
+    return trx;
+  } catch (error) {
+    console.error('[FourteenWallet] getTRXBalance failed:', error);
+    return null;
   }
-
-  return {
-    tronWeb: resolveTronWeb(tronWeb),
-    address: null
-  };
 }
-
-export function getCurrentAddress(tronWeb) {
-  const resolvedTronWeb = resolveTronWeb(tronWeb);
-  return resolvedTronWeb?.defaultAddress?.base58 || null;
-}
-
-export function isTronWebReady(tronWeb, options = {}) {
-  const {
-    requireAddress = true
-  } = options;
-
-  const resolvedTronWeb = resolveTronWeb(tronWeb);
-
-  if (!resolvedTronWeb || !resolvedTronWeb.ready) {
-    return false;
-  }
-
-  if (!requireAddress) {
-    return true;
-  }
-
-  return !!resolvedTronWeb?.defaultAddress?.base58;
-}
-
-export default {
-  getTRXBalance,
-  waitForTronWebAddress,
-  waitForTronWebReady,
-  getCurrentAddress,
-  isTronWebReady
-};
