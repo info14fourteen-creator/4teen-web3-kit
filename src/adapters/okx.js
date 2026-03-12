@@ -6,6 +6,11 @@ function getWindowSafe() {
   return typeof window !== 'undefined' ? window : null;
 }
 
+function getUserAgent() {
+  if (typeof navigator === 'undefined') return '';
+  return navigator.userAgent || '';
+}
+
 function readAddressFromTronWeb(tronWeb) {
   return tronWeb?.defaultAddress?.base58 || null;
 }
@@ -22,6 +27,16 @@ function normalizeAccountsPayload(accounts) {
   return null;
 }
 
+function isOKXEnvironment(win = getWindowSafe()) {
+  if (!win) return false;
+
+  return Boolean(
+    win.okxwallet ||
+    win.okwallet ||
+    /OKX|OKApp|OKEx/i.test(getUserAgent())
+  );
+}
+
 export function getOKXProvider() {
   const win = getWindowSafe();
   if (!win) return null;
@@ -31,17 +46,21 @@ export function getOKXProvider() {
     win.okxwallet?.tron ||
     win.okxwallet?.web3?.tron ||
     win.okxwallet ||
+    win.okwallet ||
     null
   );
 }
 
 export function getOKXTronWeb() {
   const provider = getOKXProvider();
+  const win = getWindowSafe();
 
   return (
     provider?.tronWeb ||
     provider?.sunWeb ||
     provider?.web3?.tronWeb ||
+    win?.originTronWeb ||
+    win?.tronWeb ||
     null
   );
 }
@@ -50,10 +69,9 @@ export function detectOKX() {
   const win = getWindowSafe();
   if (!win) return false;
 
-  if (win.okxwallet) return true;
+  if (isOKXEnvironment(win)) return true;
 
   const provider = getOKXProvider();
-
   return !!provider;
 }
 
