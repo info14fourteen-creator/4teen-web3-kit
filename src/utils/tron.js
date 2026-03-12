@@ -29,7 +29,10 @@ async function waitForAddress(tronWeb, timeoutMs = 5000, delayMs = 150) {
 
   while (Date.now() - startedAt < timeoutMs) {
     const resolvedTronWeb = resolveTronWeb(tronWeb);
-    const addr = resolvedTronWeb?.defaultAddress?.base58 || null;
+    const addr =
+      resolvedTronWeb?.defaultAddress?.base58 ||
+      resolvedTronWeb?.defaultAddress?.address ||
+      null;
 
     if (addr) {
       return addr;
@@ -60,7 +63,7 @@ async function getBalanceFromRPC(tronWeb, address) {
 
     return numeric / 1e6;
   } catch (error) {
-    console.warn('[Wallet RPC failed]', error);
+    console.warn('[FourteenWallet] Wallet RPC balance failed:', error);
     return null;
   }
 }
@@ -90,7 +93,7 @@ async function getBalanceFromTrongrid(address) {
 
     return numeric / 1e6;
   } catch (error) {
-    console.warn('[Trongrid fallback failed]', error);
+    console.warn('[FourteenWallet] Trongrid fallback balance failed:', error);
     return null;
   }
 }
@@ -100,13 +103,15 @@ export async function getTRXBalance(tronWeb, address) {
 
   let safeAddress =
     normalizeAddress(address) ||
-    normalizeAddress(resolvedTronWeb?.defaultAddress?.base58);
+    normalizeAddress(resolvedTronWeb?.defaultAddress?.base58) ||
+    normalizeAddress(resolvedTronWeb?.defaultAddress?.address);
 
   if (!safeAddress) {
     safeAddress = await waitForAddress(resolvedTronWeb, 5000, 150);
   }
 
   if (!safeAddress) {
+    console.warn('[FourteenWallet] balance read skipped: address not ready');
     return null;
   }
 
@@ -128,7 +133,10 @@ export async function waitForTronWebAddress(tronWeb, options = {}) {
 
   while (Date.now() - startedAt < timeoutMs) {
     const resolvedTronWeb = resolveTronWeb(tronWeb);
-    const address = resolvedTronWeb?.defaultAddress?.base58 || null;
+    const address =
+      resolvedTronWeb?.defaultAddress?.base58 ||
+      resolvedTronWeb?.defaultAddress?.address ||
+      null;
 
     if (address) {
       return {
@@ -158,7 +166,10 @@ export async function waitForTronWebReady(tronWeb, options = {}) {
   while (Date.now() - startedAt < timeoutMs) {
     const resolvedTronWeb = resolveTronWeb(tronWeb);
     const isReady = !!resolvedTronWeb?.ready;
-    const address = resolvedTronWeb?.defaultAddress?.base58 || null;
+    const address =
+      resolvedTronWeb?.defaultAddress?.base58 ||
+      resolvedTronWeb?.defaultAddress?.address ||
+      null;
 
     if (resolvedTronWeb && isReady && (!requireAddress || address)) {
       return {
@@ -178,7 +189,12 @@ export async function waitForTronWebReady(tronWeb, options = {}) {
 
 export function getCurrentAddress(tronWeb) {
   const resolvedTronWeb = resolveTronWeb(tronWeb);
-  return resolvedTronWeb?.defaultAddress?.base58 || null;
+
+  return (
+    resolvedTronWeb?.defaultAddress?.base58 ||
+    resolvedTronWeb?.defaultAddress?.address ||
+    null
+  );
 }
 
 export function isTronWebReady(tronWeb, options = {}) {
@@ -196,7 +212,10 @@ export function isTronWebReady(tronWeb, options = {}) {
     return true;
   }
 
-  return !!resolvedTronWeb?.defaultAddress?.base58;
+  return Boolean(
+    resolvedTronWeb?.defaultAddress?.base58 ||
+    resolvedTronWeb?.defaultAddress?.address
+  );
 }
 
 export default {
