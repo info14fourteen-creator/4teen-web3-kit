@@ -1,56 +1,30 @@
-console.log('WALLET_MANAGER_BUILD', 'wm-okx-hotfix-v3');
-window.__FW_WALLET_MANAGER_BUILD__ = 'wm-okx-hotfix-v3';
-
 import { emit, on, off } from './events.js';
 import { getState, setState, resetState } from './state.js';
 import { shortenAddress } from '../utils/address.js';
 import { getTRXBalance } from '../utils/tron.js';
 
 import {
-  detectTronLink,
-  connectTronLink,
-  subscribeTronLinkEvents
-} from '../adapters/tronlink.js';
-
-import {
-  detectOKX,
-  connectOKX,
-  subscribeOKXEvents
-} from '../adapters/okx.js';
-
-import {
-  detectBinance,
-  connectBinance,
-  subscribeBinanceEvents
-} from '../adapters/binance.js';
-
-import {
-  detectTrust,
-  connectTrust,
-  subscribeTrustEvents
-} from '../adapters/trust.js';
+  getWalletAdapterIds,
+  getAvailableWalletOptions,
+  detectWalletMap,
+  connectWalletAdapter,
+  subscribeWalletAdapterEvents
+} from '../adapters/registry.js';
 
 let unsubscribeAdapterEvents = null;
 let lastRefreshPromise = null;
 let connectRequestId = 0;
 
-const WALLET_MANAGER_BUILD = 'wm-okx-hotfix-v2';
-
-function clearAdapterSubscriptions() {
-  if (!unsubscribeAdapterEvents) return;
-
-  try {
-    unsubscribeAdapterEvents();
-  } catch (error) {
-    console.error('[FourteenWallet] Failed to unsubscribe adapter events', error);
-  }
-
-  unsubscribeAdapterEvents = null;
-}
+const WALLET_MANAGER_BUILD = 'wm-registry-okx-fix-v2';
 
 function getUserAgent() {
   if (typeof navigator === 'undefined') return '';
   return navigator.userAgent || '';
+}
+
+function isTrustInAppBrowser() {
+  const ua = getUserAgent();
+  return /Trust|TrustWallet/i.test(ua) || !!window?.trustwallet || !!window?.trustWallet;
 }
 
 function isOKXInAppBrowser() {
@@ -63,75 +37,21 @@ function isBinanceInAppBrowser() {
   return /Binance/i.test(ua) || !!window?.binancew3w || !!window?.BinanceChain;
 }
 
-function isTrustInAppBrowser() {
+function isTronLinkInAppBrowser() {
   const ua = getUserAgent();
-  return /Trust|TrustWallet/i.test(ua) || !!window?.trustwallet || !!window?.trustWallet;
+  return /TronLink/i.test(ua);
 }
 
-function isTronLinkDetected(detected) {
-  if (!detected) return false;
+function clearAdapterSubscriptions() {
+  if (!unsubscribeAdapterEvents) return;
 
-  if (typeof detected === 'boolean') {
-    return detected;
+  try {
+    unsubscribeAdapterEvents();
+  } catch (error) {
+    console.error('[FourteenWallet] Failed to unsubscribe adapter events', error);
   }
 
-  if (typeof detected === 'object') {
-    return !!(detected.installed || detected.ready);
-  }
-
-  return false;
-}
-
-function resolveDetectedWallets(rawWallets = {}) {
-  const wallets = {
-    tronlink: Boolean(rawWallets.tronlink),
-    okx: Boolean(rawWallets.okx),
-    binance: Boolean(rawWallets.binance),
-    trust: Boolean(rawWallets.trust),
-    generic: Boolean(rawWallets.generic)
-  };
-
-  if (wallets.okx && isOKXInAppBrowser()) {
-    return {
-      okx: true,
-      __debug: {
-        build: WALLET_MANAGER_BUILD,
-        reason: 'okx-in-app-priority',
-        ua: getUserAgent()
-      }
-    };
-  }
-
-  if (wallets.binance && isBinanceInAppBrowser()) {
-    return {
-      binance: true,
-      __debug: {
-        build: WALLET_MANAGER_BUILD,
-        reason: 'binance-in-app-priority',
-        ua: getUserAgent()
-      }
-    };
-  }
-
-  if (wallets.trust && isTrustInAppBrowser()) {
-    return {
-      trust: true,
-      __debug: {
-        build: WALLET_MANAGER_BUILD,
-        reason: 'trust-in-app-priority',
-        ua: getUserAgent()
-      }
-    };
-  }
-
-  return {
-    ...wallets,
-    __debug: {
-      build: WALLET_MANAGER_BUILD,
-      reason: 'default-resolution',
-      ua: getUserAgent()
-    }
-  };
+  unsubscribeAdapterEvents = null;
 }
 
 async function refreshBalance() {
@@ -199,61 +119,56 @@ async function handleAccountChanged(address) {
   await refreshBalance();
 }
 
+function bindGenericProviderAccountsChanged(provider) {
+  if (!provider || typeof provider.on !== 'function') {
+    return () => {};
+  }
+
+  const handler = async (accounts) => {
+    const address = Array.isArray(accounts) ? accounts[0] : accounts;
+    await handleAccountChanged(address || null);
+  };
+
+  provider.on('accountsChanged', handler);
+
+  return () => {
+    provider.removeListener?.('accountsChanged', handler);
+  };
+}
+
+function shouldBindGenericListener(walletType, provider) {
+  if (!provider?.on) return false;
+
+  if (
+    walletType === 'tronlink' ||
+    walletType === 'okx' ||
+    walletType === 'binance' ||
+    walletType === 'trust'
+  ) {
+    return false;
+  }
+
+  return true;
+}
+
 function bindAdapterEvents(walletType, provider) {
   clearAdapterSubscriptions();
 
   const cleanups = [];
 
-  if (walletType === 'tronlink') {
-    cleanups.push(
-      subscribeTronLinkEvents({
-        onAccountsChanged: async (address) => {
-          await handleAccountChanged(address);
-        },
-        onDisconnect: async () => {
-          disconnect();
-        }
-      })
-    );
-  }
+  cleanups.push(
+    subscribeWalletAdapterEvents(walletType, {
+      onAccountsChanged: async (address) => {
+        await handleAccountChanged(address);
+      },
+      onDisconnect: async () => {
+        disconnect();
+      }
+    })
+  );
 
-  if (walletType === 'okx') {
-    cleanups.push(
-      subscribeOKXEvents({
-        onAccountsChanged: async (address) => {
-          await handleAccountChanged(address);
-        },
-        onDisconnect: async () => {
-          disconnect();
-        }
-      })
-    );
-  }
-
-  if (walletType === 'binance') {
-    cleanups.push(
-      subscribeBinanceEvents({
-        onAccountsChanged: async (address) => {
-          await handleAccountChanged(address);
-        },
-        onDisconnect: async () => {
-          disconnect();
-        }
-      })
-    );
-  }
-
-  if (walletType === 'trust') {
-    cleanups.push(
-      subscribeTrustEvents({
-        onAccountsChanged: async (address) => {
-          await handleAccountChanged(address);
-        },
-        onDisconnect: async () => {
-          disconnect();
-        }
-      })
-    );
+  if (shouldBindGenericListener(walletType, provider)) {
+    cleanups.push(bindGenericProviderAccountsChanged(provider));
   }
 
   unsubscribeAdapterEvents = () => {
@@ -300,69 +215,100 @@ async function applyConnection(result, requestId) {
   return getState();
 }
 
+function resolveWalletMap(wallets) {
+  if (wallets.trust && isTrustInAppBrowser()) {
+    return { trust: true };
+  }
+
+  if (wallets.okx && isOKXInAppBrowser()) {
+    return { okx: true };
+  }
+
+  if (wallets.binance && isBinanceInAppBrowser()) {
+    return { binance: true };
+  }
+
+  if (wallets.tronlink && isTronLinkInAppBrowser()) {
+    return { tronlink: true };
+  }
+
+  return wallets;
+}
+
+function getDetectedWalletList(wallets) {
+  return Object.entries(wallets)
+    .filter(([, isDetected]) => Boolean(isDetected))
+    .map(([walletType]) => walletType);
+}
+
+function resolvePreferredInAppWallet(wallets) {
+  if (wallets.trust && isTrustInAppBrowser()) return 'trust';
+  if (wallets.okx && isOKXInAppBrowser()) return 'okx';
+  if (wallets.binance && isBinanceInAppBrowser()) return 'binance';
+  if (wallets.tronlink && isTronLinkInAppBrowser()) return 'tronlink';
+  return null;
+}
+
 export function detectWallets() {
-  const wallets = {};
+  let wallets = detectWalletMap();
 
-  try {
-    if (detectOKX()) {
-      wallets.okx = true;
-    }
-  } catch (error) {
-    console.warn('[FourteenWallet] detect failed for okx:', error);
+  if (wallets.okx && isOKXInAppBrowser()) {
+    wallets.tronlink = false;
   }
 
-  try {
-    if (detectBinance()) {
-      wallets.binance = true;
-    }
-  } catch (error) {
-    console.warn('[FourteenWallet] detect failed for binance:', error);
-  }
-
-  try {
-    if (detectTrust()) {
-      wallets.trust = true;
-    }
-  } catch (error) {
-    console.warn('[FourteenWallet] detect failed for trust:', error);
-  }
-
-  if (!isOKXInAppBrowser()) {
-    try {
-      const tronLinkDetected = detectTronLink();
-      if (isTronLinkDetected(tronLinkDetected)) {
-        wallets.tronlink = true;
-      }
-    } catch (error) {
-      console.warn('[FourteenWallet] detect failed for tronlink:', error);
-    }
-  }
+  wallets = resolveWalletMap(wallets);
 
   if (
     typeof window !== 'undefined' &&
     window.tronWeb &&
-    Object.keys(wallets).length === 0
+    Object.keys(wallets).filter((key) => wallets[key]).length === 0
   ) {
     wallets.generic = true;
   }
 
-  const resolved = resolveDetectedWallets(wallets);
-
   try {
-    window.__FW_LAST_DETECT__ = resolved;
     window.__FW_WALLET_MANAGER_BUILD__ = WALLET_MANAGER_BUILD;
+    window.__FW_LAST_DETECT__ = wallets;
   } catch {}
-window.__FW_LAST_DETECT__ = resolved;
-  return resolved;
+
+  return wallets;
+}
+
+export function getAvailableWalletOptionsSafe() {
+  const wallets = detectWallets();
+  const available = getAvailableWalletOptions();
+
+  return available.map((item) => ({
+    ...item,
+    detected: Boolean(wallets[item.id])
+  }));
+}
+
+export function getWalletAdapterTypes() {
+  return getWalletAdapterIds();
 }
 
 export async function autoDetectWallet() {
   const wallets = detectWallets();
+  const available = getDetectedWalletList(wallets).filter((type) => type !== 'generic');
 
+  if (available.length === 0) {
+    return null;
+  }
+
+  if (available.length === 1) {
+    return available[0];
+  }
+
+  const preferred = resolvePreferredInAppWallet(wallets);
+  if (preferred) {
+    return preferred;
+  }
+
+  if (wallets.tronlink) return 'tronlink';
   if (wallets.okx) return 'okx';
   if (wallets.binance) return 'binance';
   if (wallets.trust) return 'trust';
-  if (wallets.tronlink) return 'tronlink';
 
   return null;
 }
@@ -384,19 +330,7 @@ export async function connect(walletType) {
   });
 
   try {
-    let result = null;
-
-    if (resolvedWalletType === 'tronlink') {
-      result = await connectTronLink();
-    } else if (resolvedWalletType === 'okx') {
-      result = await connectOKX();
-    } else if (resolvedWalletType === 'binance') {
-      result = await connectBinance();
-    } else if (resolvedWalletType === 'trust') {
-      result = await connectTrust();
-    } else {
-      throw new Error('Unsupported wallet');
-    }
+    const result = await connectWalletAdapter(resolvedWalletType);
 
     if (!result?.address || !result?.tronWeb) {
       throw new Error('Wallet connection returned empty result');
