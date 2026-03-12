@@ -44,7 +44,7 @@ function createBottomNotice(message, txid = '', isError = false) {
   const safeMessage = escapeHtml(message);
 
   notice.innerHTML = txid
-    ? `${safeMessage}<br><a href="https://tronscan.org/#/transaction/${txid}" target="_blank" rel="noopener noreferrer" style="color:#ff8a3d; text-decoration:underline;">${txid}</a>`
+    ? `${safeMessage}<br><a href="https://tronscan.org/#/transaction/${txid}" target="_blank" rel="noopener noreferrer" style="color:#ff8a3d; text-decoration:underline; word-break:break-all;">${txid}</a>`
     : safeMessage;
 
   notice.style.display = 'block';
@@ -61,6 +61,7 @@ function extractTxid(result) {
   if (typeof result?.txid === 'string') return result.txid;
   if (typeof result?.txID === 'string') return result.txID;
   if (typeof result?.transaction?.txID === 'string') return result.transaction.txID;
+  if (typeof result?.transaction === 'string') return result.transaction;
   return '';
 }
 
@@ -72,7 +73,11 @@ function normalizeError(error) {
     'Unknown error'
   );
 
-  if (text.includes('rejected') || text.includes('denied')) {
+  if (
+    text.includes('rejected') ||
+    text.includes('denied') ||
+    text.includes('User rejected')
+  ) {
     return 'Transaction rejected in wallet.';
   }
 
@@ -91,7 +96,6 @@ export function mountDirectBuy({
   buttonConnectText = 'Connect Wallet',
   buttonBuyText = 'Buy 4TEEN Directly'
 }) {
-
   const root = document.getElementById(rootId);
   if (!root) throw new Error(`Direct buy root not found: ${rootId}`);
 
@@ -100,30 +104,39 @@ export function mountDirectBuy({
   }
 
   if (ACTIVE_INSTANCES.has(rootId)) {
-    ACTIVE_INSTANCES.get(rootId).destroy();
+    try {
+      ACTIVE_INSTANCES.get(rootId).destroy();
+    } catch (_) {}
   }
 
   const wallet = window.FourteenWallet;
 
   root.innerHTML = `
-  <div class="fourteen-buy-widget">
-    <div class="fourteen-buy-header">
-      <div class="fourteen-buy-label">Amount of TRX:</div>
+    <div class="fourteen-buy-widget">
+      <div class="fourteen-buy-header">
+        <div class="fourteen-buy-label">Amount of TRX:</div>
 
-      <div class="fourteen-buy-balance-wrap">
-        <div class="fourteen-buy-balance">0.000000 TRX</div>
-        <button class="fourteen-buy-refresh">↻</button>
+        <div class="fourteen-buy-balance-wrap">
+          <div class="fourteen-buy-balance">0.000000 TRX</div>
+          <button class="fourteen-buy-refresh" type="button" aria-label="Refresh balance">↻</button>
+        </div>
       </div>
+
+      <label class="fourteen-buy-input-label">${inputLabel}</label>
+
+      <input
+        class="fourteen-buy-input"
+        type="number"
+        disabled
+        step="0.000001"
+        min="0"
+        placeholder="Connect wallet first"
+      />
+
+      <button class="fourteen-buy-button" type="button">${buttonConnectText}</button>
+
+      <div class="fourteen-buy-status"></div>
     </div>
-
-    <label class="fourteen-buy-input-label">${inputLabel}</label>
-
-    <input class="fourteen-buy-input" type="number" disabled step="0.000001"/>
-
-    <button class="fourteen-buy-button">${buttonConnectText}</button>
-
-    <div class="fourteen-buy-status"></div>
-  </div>
   `;
 
   const balanceEl = root.querySelector('.fourteen-buy-balance');
@@ -136,119 +149,224 @@ export function mountDirectBuy({
   let contract = null;
   let connected = false;
   let isSubmitting = false;
+  let isDestroyed = false;
 
-  function setStatus(msg='',err=false){
-    statusEl.textContent=msg;
-    statusEl.classList.toggle('error',err);
+  function isAlive() {
+    return !isDestroyed && document.body.contains(root);
   }
 
-  function getMaxAllowed(){
-    return Math.max(0,walletBalance-reserveTRX);
+  function setStatus(msg = '', err = false) {
+    if (!isAlive()) return;
+    statusEl.textContent = msg;
+    statusEl.classList.toggle('error', err);
   }
 
-  async function getBalance(){
-    const tronWeb=wallet.getTronWeb();
-    const addr=tronWeb.defaultAddress.base58;
-    const sun=await tronWeb.trx.getBalance(addr);
-
-    walletBalance=sun/1e6;
-    balanceEl.textContent=`${walletBalance.toFixed(6)} TRX`;
+  function getMaxAllowed() {
+    return Math.max(0, walletBalance - reserveTRX);
   }
 
-  async function connectWallet(){
+  function updateConnectedUi() {
+    if (!isAlive()) return;
 
+    connected = !!wallet.isConnected?.();
+
+    inputEl.disabled = !connected || isSubmitting;
+    inputEl.placeholder = connected ? inputLabel : 'Connect wallet first';
+
+    buttonEl.disabled = isSubmitting;
+    buttonEl.textContent = isSubmitting
+      ? 'Processing...'
+      : connected
+        ? buttonBuyText
+        : buttonConnectText;
+
+    buttonEl.classList.toggle('connected', connected);
+  }
+
+  async function ensureContract() {
+    const tronWeb = wallet.getTronWeb?.();
+
+    if (!tronWeb?.contract) {
+      throw new Error('Wallet not ready');
+    }
+
+    if (!contract) {
+      contract = await tronWeb.contract().at(contractAddress);
+    }
+
+    return contract;
+  }
+
+  async function getBalance() {
+    if (!wallet.isConnected?.()) {
+      walletBalance = 0;
+      balanceEl.textContent = '0.000000 TRX';
+      updateConnectedUi();
+      return 0;
+    }
+
+    try {
+      const balance = await wallet.getBalanceTRX?.();
+      const numeric = Number(balance);
+
+      walletBalance = Number.isFinite(numeric) ? numeric : 0;
+      balanceEl.textContent = `${walletBalance.toFixed(6)} TRX`;
+
+      updateConnectedUi();
+      return walletBalance;
+    } catch (error) {
+      console.error('[DirectBuy] getBalance failed:', error);
+      walletBalance = 0;
+      balanceEl.textContent = '0.000000 TRX';
+      updateConnectedUi();
+      return 0;
+    }
+  }
+
+  async function connectWallet() {
     setStatus('Connecting wallet...');
 
     await wallet.connect();
 
-    const tronWeb=wallet.getTronWeb();
-
-    if(!tronWeb?.defaultAddress?.base58){
-      throw new Error('Wallet not ready');
-    }
-
-    contract=await tronWeb.contract().at(contractAddress);
-
-    connected=true;
-
+    await sleep(250);
+    await ensureContract();
     await getBalance();
 
-    inputEl.disabled=false;
-    buttonEl.textContent=buttonBuyText;
-    buttonEl.classList.add('connected');
-
+    connected = true;
+    updateConnectedUi();
     setStatus('');
   }
 
-  async function buy(){
+  async function buy() {
+    if (isSubmitting) return;
 
-    if(isSubmitting) return;
+    try {
+      const amount = parseFloat(inputEl.value);
 
-    try{
-
-      const amount=parseFloat(inputEl.value);
-
-      if(!amount||amount<=0){
-        setStatus('Enter valid TRX amount',true);
+      if (!amount || amount <= 0) {
+        setStatus('Enter valid TRX amount', true);
         return;
       }
 
-      const max=getMaxAllowed();
+      await getBalance();
 
-      if(amount>max){
-        setStatus(`Max allowed ${max.toFixed(6)} TRX`,true);
+      const max = getMaxAllowed();
+
+      if (amount > max) {
+        setStatus(`Max allowed ${max.toFixed(6)} TRX`, true);
         return;
       }
 
-      const valueSun=Math.round(amount*1e6);
+      const valueSun = Math.round(amount * 1e6);
 
-      isSubmitting=true;
-
+      isSubmitting = true;
+      updateConnectedUi();
       setStatus('Waiting wallet confirmation...');
 
-      const result=await contract.buyTokens().send({
-        callValue:valueSun
+      const activeContract = await ensureContract();
+
+      const result = await activeContract.buyTokens().send({
+        callValue: valueSun
       });
 
-      const txid=extractTxid(result);
+      const txid = extractTxid(result);
 
-      createBottomNotice('Transaction sent',txid,false);
+      createBottomNotice('Transaction sent', txid, false);
 
-      inputEl.value='';
+      inputEl.value = '';
 
-      await sleep(2000);
+      await sleep(1500);
       await getBalance();
 
       setStatus('');
-
-    }catch(err){
-
-      const msg=normalizeError(err);
-
-      setStatus(msg,true);
-      createBottomNotice(msg,'',true);
-
-    }finally{
-      isSubmitting=false;
+    } catch (err) {
+      const msg = normalizeError(err);
+      setStatus(msg, true);
+      createBottomNotice(msg, '', true);
+    } finally {
+      isSubmitting = false;
+      updateConnectedUi();
     }
-
   }
 
-  buttonEl.addEventListener('click',async()=>{
-    if(!connected){
-      await connectWallet();
-    }else{
-      await buy();
+  async function handleButtonClick() {
+    try {
+      if (!wallet.isConnected?.()) {
+        await connectWallet();
+      } else {
+        await buy();
+      }
+    } catch (error) {
+      const msg = normalizeError(error);
+      setStatus(msg, true);
+      createBottomNotice(msg, '', true);
+      isSubmitting = false;
+      updateConnectedUi();
     }
+  }
+
+  async function handleRefreshClick() {
+    if (isSubmitting) return;
+
+    try {
+      await getBalance();
+      setStatus('');
+    } catch (error) {
+      setStatus(normalizeError(error), true);
+    }
+  }
+
+  function handleWalletChange() {
+    contract = null;
+    connected = !!wallet.isConnected?.();
+    updateConnectedUi();
+
+    if (connected) {
+      getBalance().catch((error) => {
+        console.error('[DirectBuy] wallet change balance refresh failed:', error);
+      });
+    } else {
+      walletBalance = 0;
+      balanceEl.textContent = '0.000000 TRX';
+      inputEl.value = '';
+      setStatus('');
+    }
+  }
+
+  buttonEl.addEventListener('click', handleButtonClick);
+  refreshBtn.addEventListener('click', handleRefreshClick);
+
+  const offConnected = wallet.on?.('connected', handleWalletChange);
+  const offDisconnected = wallet.on?.('disconnected', handleWalletChange);
+  const offAccountChanged = wallet.on?.('accountChanged', handleWalletChange);
+  const offBalanceChanged = wallet.on?.('balanceChanged', async () => {
+    await getBalance();
   });
 
-  refreshBtn.addEventListener('click',async()=>{
-    if(connected) await getBalance();
-  });
+  connected = !!wallet.isConnected?.();
+  updateConnectedUi();
 
-  function destroy(){}
+  if (connected) {
+    ensureContract()
+      .then(() => getBalance())
+      .catch((error) => {
+        console.error('[DirectBuy] initial restore failed:', error);
+      });
+  }
 
-  ACTIVE_INSTANCES.set(rootId,{destroy});
+  function destroy() {
+    isDestroyed = true;
 
-  return{destroy};
+    buttonEl.removeEventListener('click', handleButtonClick);
+    refreshBtn.removeEventListener('click', handleRefreshClick);
+
+    if (typeof offConnected === 'function') offConnected();
+    if (typeof offDisconnected === 'function') offDisconnected();
+    if (typeof offAccountChanged === 'function') offAccountChanged();
+    if (typeof offBalanceChanged === 'function') offBalanceChanged();
+  }
+
+  ACTIVE_INSTANCES.set(rootId, { destroy });
+
+  return { destroy };
 }
