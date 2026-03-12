@@ -49,15 +49,74 @@ function getUserAgent() {
 }
 
 function isOKXInAppBrowser() {
-  return /OKX|OKApp/i.test(getUserAgent());
+  const ua = getUserAgent();
+  return /OKX|OKApp/i.test(ua) || !!window?.okxwallet;
 }
 
 function isBinanceInAppBrowser() {
-  return /Binance/i.test(getUserAgent());
+  const ua = getUserAgent();
+  return /Binance/i.test(ua) || !!window?.binancew3w || !!window?.BinanceChain;
 }
 
 function isTrustInAppBrowser() {
-  return /Trust|TrustWallet/i.test(getUserAgent());
+  const ua = getUserAgent();
+  return /Trust|TrustWallet/i.test(ua) || !!window?.trustwallet || !!window?.trustWallet;
+}
+
+function isTronLinkDetected(detected) {
+  if (!detected) return false;
+
+  if (typeof detected === 'boolean') {
+    return detected;
+  }
+
+  if (typeof detected === 'object') {
+    return !!(detected.installed || detected.ready);
+  }
+
+  return false;
+}
+
+function resolveDetectedWallets(rawWallets = {}) {
+  const wallets = {
+    tronlink: Boolean(rawWallets.tronlink),
+    okx: Boolean(rawWallets.okx),
+    binance: Boolean(rawWallets.binance),
+    trust: Boolean(rawWallets.trust),
+    generic: Boolean(rawWallets.generic)
+  };
+
+  if (wallets.okx && isOKXInAppBrowser()) {
+    return {
+      tronlink: false,
+      okx: true,
+      binance: false,
+      trust: false,
+      generic: false
+    };
+  }
+
+  if (wallets.binance && isBinanceInAppBrowser()) {
+    return {
+      tronlink: false,
+      okx: false,
+      binance: true,
+      trust: false,
+      generic: false
+    };
+  }
+
+  if (wallets.trust && isTrustInAppBrowser()) {
+    return {
+      tronlink: false,
+      okx: false,
+      binance: false,
+      trust: true,
+      generic: false
+    };
+  }
+
+  return wallets;
 }
 
 async function refreshBalance() {
@@ -262,34 +321,6 @@ async function applyConnection(result, requestId) {
   return getState();
 }
 
-function isTronLinkDetected(detected) {
-  if (!detected) return false;
-
-  if (typeof detected === 'boolean') return detected;
-
-  if (typeof detected === 'object') {
-    return !!detected.installed;
-  }
-
-  return false;
-}
-
-function resolvePreferredWallet(wallets) {
-  if (isOKXInAppBrowser() && wallets.okx) {
-    return { okx: true };
-  }
-
-  if (isBinanceInAppBrowser() && wallets.binance) {
-    return { binance: true };
-  }
-
-  if (isTrustInAppBrowser() && wallets.trust) {
-    return { trust: true };
-  }
-
-  return wallets;
-}
-
 export function detectWallets() {
   const wallets = {};
 
@@ -334,7 +365,7 @@ export function detectWallets() {
     wallets.generic = true;
   }
 
-  return resolvePreferredWallet(wallets);
+  return resolveDetectedWallets(wallets);
 }
 
 export async function autoDetectWallet() {
