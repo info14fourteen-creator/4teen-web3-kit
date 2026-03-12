@@ -1,3 +1,7 @@
+import { TronWeb } from 'tronweb';
+
+const DEFAULT_FULL_HOST = 'https://api.trongrid.io';
+
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -6,20 +10,30 @@ function getWindowSafe() {
   return typeof window !== 'undefined' ? window : null;
 }
 
-function readAddressFromTronWeb(tronWeb) {
-  return tronWeb?.defaultAddress?.base58 || null;
-}
+function normalizeAddress(value) {
+  if (!value) return null;
 
-function normalizeAccountsPayload(accounts) {
-  if (Array.isArray(accounts)) {
-    return accounts[0] || null;
+  if (typeof value === 'string') {
+    return value;
   }
 
-  if (typeof accounts === 'string') {
-    return accounts || null;
+  if (typeof value?.address === 'string') {
+    return value.address;
+  }
+
+  if (typeof value?.base58 === 'string') {
+    return value.base58;
+  }
+
+  if (Array.isArray(value) && typeof value[0] === 'string') {
+    return value[0];
   }
 
   return null;
+}
+
+function readAddressFromTronWeb(tronWeb) {
+  return tronWeb?.defaultAddress?.base58 || null;
 }
 
 export function getOKXProvider() {
@@ -27,33 +41,29 @@ export function getOKXProvider() {
   if (!win) return null;
 
   return (
+    win.okxwallet?.tronLink ||
     win.okxwallet?.tron ||
     win.okxwallet?.web3?.tron ||
     win.okxwallet ||
-    win.okxwallet?.tronLink ||
-    null
-  );
-}
-
-export function getOKXTronWeb() {
-  const provider = getOKXProvider();
-
-  return (
-    provider?.tronWeb ||
-    provider?.sunWeb ||
-    provider?.web3?.tronWeb ||
     null
   );
 }
 
 export function detectOKX() {
-  const win = getWindowSafe();
-  if (!win) return false;
+  return !!getOKXProvider();
+}
 
-  if (win.okxwallet) return true;
+async function waitForOKXProvider(maxAttempts = 30, delay = 150) {
+  for (let i = 0; i < maxAttempts; i += 1) {
+    const provider = getOKXProvider();
+    if (provider) {
+      return provider;
+    }
 
-  const provider = getOKXProvider();
-  return !!provider;
+    await sleep(delay);
+  }
+
+  return null;
 }
 
 async function requestAccounts(provider) {
@@ -64,7 +74,8 @@ async function requestAccounts(provider) {
   if (typeof provider.request === 'function') {
     try {
       const result = await provider.request({ method: 'tron_requestAccounts' });
-      return normalizeAccountsPayload(result);
+      const address = normalizeAddress(result);
+      if (address) return address;
     } catch (error) {
       throw new Error(error?.message || 'User rejected OKX connection');
     }
@@ -73,7 +84,8 @@ async function requestAccounts(provider) {
   if (typeof provider.connect === 'function') {
     try {
       const result = await provider.connect();
-      return normalizeAccountsPayload(result);
+      const address = normalizeAddress(result);
+      if (address) return address;
     } catch (error) {
       throw new Error(error?.message || 'User rejected OKX connection');
     }
@@ -82,72 +94,212 @@ async function requestAccounts(provider) {
   return null;
 }
 
-async function waitForOKXReady(options = {}) {
+async function readAddressFromProvider(provider) {
+  if (!provider) return null;
+
+  try {
+    if (typeof provider.getAccount === 'function') {
+      const account = await provider.getAccount();
+      const address = normalizeAddress(account);
+      if (address) return address;
+    }
+  } catch (error) {
+    console.warn('[FourteenWallet][OKX] provider.getAccount() failed:', error);
+  }
+
+  try {
+    if (typeof provider.request === 'function') {
+      const result = await provider.request({ method: 'tron_requestAccounts' });
+      const address = normalizeAddress(result);
+      if (address) return address;
+    }
+  } catch (error) {
+    console.warn('[FourteenWallet][OKX] tron_requestAccounts failed:', error);
+  }
+
+  try {
+    const fallback =
+      provider.address ||
+      provider.selectedAddress ||
+      provider.defaultAddress?.base58 ||
+      provider.tronWeb?.defaultAddress?.base58 ||
+      provider.sunWeb?.defaultAddress?.base58 ||
+      provider.web3?.tronWeb?.defaultAddress?.base58 ||
+      window?.tronWeb?.defaultAddress?.base58 ||
+      null;
+
+    return normalizeAddress(fallback);
+  } catch (error) {
+    console.warn('[FourteenWallet][OKX] fallback address read failed:', error);
+    return null;
+  }
+}
+
+export function createOKXTronWeb(provider, address, fullHost = DEFAULT_FULL_HOST) {
+  if (!provider) {
+    throw new Error('OKX provider is missing');
+  }
+
+  const injectedTronWeb =
+    provider.tronWeb ||
+    provider.sunWeb ||
+    provider.web3?.tronWeb ||
+    (window?.tronWeb?.defaultAddress?.base58 === address ? window.tronWeb : null);
+
+  if (injectedTronWeb) {
+    try {
+      if (typeof injectedTronWeb.setAddress === 'function' && address) {
+        injectedTronWeb.setAddress(address);
+      } else if (address) {
+        const hex =
+          injectedTronWeb.address?.toHex?.(address) ||
+          injectedTronWeb.defaultAddress?.hex ||
+          '';
+
+        injectedTronWeb.defaultAddress = {
+          base58: address,
+          hex
+        };
+      }
+
+      injectedTronWeb.ready = true;
+    } catch (error) {
+      console.warn('[FourteenWallet][OKX] failed to patch injected tronWeb:', error);
+    }
+
+    return injectedTronWeb;
+  }
+
+  const tronWeb = new TronWeb({ fullHost });
+
+  if (!address) {
+    throw new Error('OKX wallet returned no address');
+  }
+
+  const hexAddress =
+    tronWeb.address?.toHex?.(address) ||
+    tronWeb.defaultAddress?.hex ||
+    '';
+
+  if (typeof tronWeb.setAddress === 'function') {
+    tronWeb.setAddress(address);
+  }
+
+  tronWeb.defaultAddress = {
+    base58: address,
+    hex: hexAddress
+  };
+
+  tronWeb.ready = true;
+
+  const originalSign = tronWeb.trx?.sign?.bind(tronWeb.trx);
+
+  tronWeb.trx.sign = async (transaction, privateKey = false, useTronHeader = true, multisig = false) => {
+    if (!transaction) {
+      throw new Error('Transaction is required for signing');
+    }
+
+    if (typeof provider.signTransaction === 'function') {
+      return await provider.signTransaction(transaction);
+    }
+
+    if (typeof originalSign === 'function' && privateKey) {
+      return await originalSign(transaction, privateKey, useTronHeader, multisig);
+    }
+
+    throw new Error('OKX wallet does not expose signTransaction');
+  };
+
+  if (typeof provider.signMessageV2 === 'function') {
+    tronWeb.trx.signMessageV2 = async (message) => provider.signMessageV2(message);
+  }
+
+  tronWeb.__walletProvider = provider;
+
+  return tronWeb;
+}
+
+async function waitForOKXReady(address, options = {}) {
   const {
     timeoutMs = 15000,
-    delayMs = 200,
-    requireAddress = true
+    delayMs = 200
   } = options;
 
   const startedAt = Date.now();
 
   while (Date.now() - startedAt < timeoutMs) {
-    const tronWeb = getOKXTronWeb();
-    const address = readAddressFromTronWeb(tronWeb);
+    const provider = getOKXProvider();
 
-    if (tronWeb && (!requireAddress || address)) {
-      return { tronWeb, address };
+    const tronWeb =
+      provider?.tronWeb ||
+      provider?.sunWeb ||
+      provider?.web3?.tronWeb ||
+      (window?.tronWeb?.defaultAddress?.base58 === address ? window.tronWeb : null) ||
+      null;
+
+    const resolvedAddress =
+      readAddressFromTronWeb(tronWeb) ||
+      normalizeAddress(
+        provider?.address ||
+        provider?.selectedAddress ||
+        provider?.defaultAddress?.base58 ||
+        null
+      ) ||
+      null;
+
+    if (tronWeb && resolvedAddress) {
+      return { provider, tronWeb, address: resolvedAddress };
     }
 
     await sleep(delayMs);
   }
 
-  return { tronWeb: null, address: null };
+  return { provider: getOKXProvider(), tronWeb: null, address: null };
 }
 
 export async function connectOKX() {
-  if (!detectOKX()) {
-    throw new Error('OKX wallet not found');
-  }
+  const provider = await waitForOKXProvider();
 
-  const provider = getOKXProvider();
   if (!provider) {
-    throw new Error('OKX provider is unavailable');
+    throw new Error('OKX wallet provider not found');
   }
 
-  const requestedAddress = await requestAccounts(provider);
+  let address = await requestAccounts(provider);
 
-  let ready = await waitForOKXReady({
+  if (!address) {
+    address = await readAddressFromProvider(provider);
+  }
+
+  let ready = await waitForOKXReady(address, {
     timeoutMs: 15000,
-    delayMs: 200,
-    requireAddress: true
+    delayMs: 200
   });
 
-  if (!ready.tronWeb || !ready.address) {
+  if (!ready.address) {
     await sleep(500);
+    const fallbackAddress = await readAddressFromProvider(provider);
+    if (fallbackAddress) {
+      address = fallbackAddress;
+    }
 
-    ready = await waitForOKXReady({
+    ready = await waitForOKXReady(address, {
       timeoutMs: 10000,
-      delayMs: 250,
-      requireAddress: true
+      delayMs: 250
     });
   }
 
-  const address = ready.address || requestedAddress || null;
+  const finalAddress = ready.address || address || null;
+  const tronWeb = createOKXTronWeb(ready.provider || provider, finalAddress);
 
-  if (!ready.tronWeb) {
-    throw new Error('OKX tronWeb is not available');
-  }
-
-  if (!address) {
-    throw new Error('OKX wallet connected, but account is not ready yet');
+  if (!tronWeb?.defaultAddress?.base58) {
+    throw new Error('OKX wallet tronWeb is not ready');
   }
 
   return {
     walletType: 'okx',
-    address,
-    tronWeb: ready.tronWeb,
-    provider
+    address: tronWeb.defaultAddress.base58,
+    tronWeb,
+    provider: ready.provider || provider
   };
 }
 
@@ -172,8 +324,8 @@ function parseMessageEventAddress(event) {
   return (
     message?.address ||
     message?.data?.address ||
-    normalizeAccountsPayload(message?.data?.accounts) ||
-    normalizeAccountsPayload(message?.accounts) ||
+    normalizeAddress(message?.data?.accounts) ||
+    normalizeAddress(message?.accounts) ||
     null
   );
 }
@@ -192,18 +344,18 @@ export function subscribeOKXEvents({ onAccountsChanged, onDisconnect } = {}) {
       return;
     }
 
-    const ready = await waitForOKXReady({
-      timeoutMs: 2500,
-      delayMs: 150,
-      requireAddress: true
-    });
-
-    await onAccountsChanged(ready.address || null);
+    try {
+      const freshAddress = await readAddressFromProvider(getOKXProvider());
+      await onAccountsChanged(freshAddress || null);
+    } catch (error) {
+      console.warn('[FourteenWallet][OKX] accountsChanged refresh failed:', error);
+      await onAccountsChanged(null);
+    }
   };
 
   if (provider?.on) {
     const handleAccountsChanged = async (accounts) => {
-      const nextAddress = normalizeAccountsPayload(accounts);
+      const nextAddress = normalizeAddress(accounts);
       await emitAccountChange(nextAddress);
     };
 
@@ -226,10 +378,7 @@ export function subscribeOKXEvents({ onAccountsChanged, onDisconnect } = {}) {
   if (win) {
     const handleMessage = async (event) => {
       const nextAddress = parseMessageEventAddress(event);
-      if (nextAddress === null) {
-        return;
-      }
-
+      if (nextAddress === null) return;
       await emitAccountChange(nextAddress);
     };
 
@@ -242,14 +391,13 @@ export function subscribeOKXEvents({ onAccountsChanged, onDisconnect } = {}) {
       if (typeof document === 'undefined') return;
       if (document.visibilityState !== 'visible') return;
 
-      const ready = await waitForOKXReady({
-        timeoutMs: 1200,
-        delayMs: 150,
-        requireAddress: true
-      });
-
-      if (ready.address && typeof onAccountsChanged === 'function') {
-        await onAccountsChanged(ready.address);
+      try {
+        const freshAddress = await readAddressFromProvider(getOKXProvider());
+        if (freshAddress && typeof onAccountsChanged === 'function') {
+          await onAccountsChanged(freshAddress);
+        }
+      } catch (error) {
+        console.warn('[FourteenWallet][OKX] visibility refresh failed:', error);
       }
     };
 
