@@ -15,6 +15,23 @@ const CONNECTORS = [
   { wallet: 'tronlink', detect: detectTronLink, connect: connectTronLink }
 ];
 
+function getUserAgent() {
+  if (typeof navigator === 'undefined') return '';
+  return navigator.userAgent || '';
+}
+
+function isOKXInAppBrowser() {
+  return /OKX|OKApp/i.test(getUserAgent());
+}
+
+function isBinanceInAppBrowser() {
+  return /Binance/i.test(getUserAgent());
+}
+
+function isTrustInAppBrowser() {
+  return /Trust|TrustWallet/i.test(getUserAgent());
+}
+
 function isTronLinkDetected(result) {
   if (!result) return false;
 
@@ -37,9 +54,29 @@ function isDetected(wallet, detected) {
   return !!detected;
 }
 
+function shouldAllowWallet(wallet) {
+  if (isOKXInAppBrowser()) {
+    return wallet === 'okx';
+  }
+
+  if (isBinanceInAppBrowser()) {
+    return wallet === 'binance';
+  }
+
+  if (isTrustInAppBrowser()) {
+    return wallet === 'trust';
+  }
+
+  return true;
+}
+
 export async function autoConnect() {
   for (const item of CONNECTORS) {
     try {
+      if (!shouldAllowWallet(item.wallet)) {
+        continue;
+      }
+
       const detected = item.detect?.();
 
       if (!isDetected(item.wallet, detected)) {
