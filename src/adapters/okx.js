@@ -6,47 +6,17 @@ function getWindowSafe() {
   return typeof window !== 'undefined' ? window : null;
 }
 
-function getUserAgent() {
-  if (typeof navigator === 'undefined') return '';
-  return navigator.userAgent || '';
-}
-
-function isOKXEnvironment(win = getWindowSafe()) {
-  if (!win) return false;
-
-  return Boolean(
-    win.okxwallet ||
-    win.okwallet ||
-    /OKX|OKApp|OKEx/i.test(getUserAgent())
-  );
-}
-
 function readAddressFromTronWeb(tronWeb) {
-  return (
-    tronWeb?.defaultAddress?.base58 ||
-    tronWeb?.defaultAddress?.address ||
-    null
-  );
+  return tronWeb?.defaultAddress?.base58 || null;
 }
 
 function normalizeAccountsPayload(accounts) {
-  if (!accounts) return null;
-
   if (Array.isArray(accounts)) {
     return accounts[0] || null;
   }
 
   if (typeof accounts === 'string') {
     return accounts || null;
-  }
-
-  if (typeof accounts === 'object') {
-    return (
-      accounts.address ||
-      accounts.base58 ||
-      accounts[0] ||
-      null
-    );
   }
 
   return null;
@@ -59,36 +29,32 @@ export function getOKXProvider() {
   return (
     win.okxwallet?.tronLink ||
     win.okxwallet?.tron ||
-    win.okxwallet?.web3?.tron ||
     win.okxwallet ||
-    win.okwallet ||
     null
   );
 }
 
 export function getOKXTronWeb() {
-  const win = getWindowSafe();
   const provider = getOKXProvider();
 
   return (
     provider?.tronWeb ||
     provider?.sunWeb ||
-    provider?.web3?.tronWeb ||
-    win?.originTronWeb ||
-    win?.tronWeb ||
     null
   );
 }
 
 export function detectOKX() {
-  const win = getWindowSafe();
-  if (!win) return false;
+  const provider = getOKXProvider();
 
-  if (isOKXEnvironment(win)) {
-    return true;
-  }
-
-  return !!getOKXProvider();
+  return !!(
+    provider &&
+    (
+      typeof provider.request === 'function' ||
+      !!provider.tronWeb ||
+      !!provider.sunWeb
+    )
+  );
 }
 
 async function requestAccounts(provider) {
@@ -105,26 +71,7 @@ async function requestAccounts(provider) {
     }
   }
 
-  if (typeof provider.connect === 'function') {
-    try {
-      const result = await provider.connect();
-      return normalizeAccountsPayload(result);
-    } catch (error) {
-      throw new Error(error?.message || 'User rejected OKX connection');
-    }
-  }
-
   return null;
-}
-
-function getFallbackAddress(provider, tronWeb) {
-  return (
-    normalizeAccountsPayload(provider?.selectedAddress) ||
-    normalizeAccountsPayload(provider?.address) ||
-    normalizeAccountsPayload(provider?.defaultAddress?.base58) ||
-    readAddressFromTronWeb(tronWeb) ||
-    null
-  );
 }
 
 async function waitForOKXReady(options = {}) {
@@ -137,13 +84,11 @@ async function waitForOKXReady(options = {}) {
   const startedAt = Date.now();
 
   while (Date.now() - startedAt < timeoutMs) {
-    const provider = getOKXProvider();
     const tronWeb = getOKXTronWeb();
-    const address = getFallbackAddress(provider, tronWeb);
+    const address = readAddressFromTronWeb(tronWeb);
 
     if (tronWeb && (!requireAddress || address)) {
       return {
-        provider,
         tronWeb,
         address
       };
@@ -153,8 +98,7 @@ async function waitForOKXReady(options = {}) {
   }
 
   return {
-    provider: getOKXProvider(),
-    tronWeb: getOKXTronWeb(),
+    tronWeb: null,
     address: null
   };
 }
@@ -165,11 +109,6 @@ export async function connectOKX() {
   }
 
   const provider = getOKXProvider();
-
-  if (!provider) {
-    throw new Error('OKX provider is unavailable');
-  }
-
   const requestedAddress = await requestAccounts(provider);
 
   let ready = await waitForOKXReady({
@@ -179,23 +118,18 @@ export async function connectOKX() {
   });
 
   if (!ready.tronWeb || !ready.address) {
-    await sleep(600);
+    await sleep(500);
 
     ready = await waitForOKXReady({
       timeoutMs: 10000,
       delayMs: 250,
-      requireAddress: false
+      requireAddress: true
     });
   }
 
-  const tronWeb = ready.tronWeb;
-  const address =
-    ready.address ||
-    requestedAddress ||
-    getFallbackAddress(provider, tronWeb) ||
-    null;
+  const address = ready.address || requestedAddress || null;
 
-  if (!tronWeb) {
+  if (!ready.tronWeb) {
     throw new Error('OKX tronWeb is not available');
   }
 
@@ -206,8 +140,8 @@ export async function connectOKX() {
   return {
     walletType: 'okx',
     address,
-    tronWeb,
-    provider: ready.provider || provider
+    tronWeb: ready.tronWeb,
+    provider
   };
 }
 
@@ -262,15 +196,10 @@ export function subscribeOKXEvents({
     const ready = await waitForOKXReady({
       timeoutMs: 2500,
       delayMs: 150,
-      requireAddress: false
+      requireAddress: true
     });
 
-    const fallback =
-      ready.address ||
-      getFallbackAddress(ready.provider, ready.tronWeb) ||
-      null;
-
-    await onAccountsChanged(fallback);
+    await onAccountsChanged(ready.address || null);
   };
 
   if (provider?.on) {
@@ -286,7 +215,10 @@ export function subscribeOKXEvents({
     };
 
     provider.on('accountsChanged', handleAccountsChanged);
-    provider.on?.('disconnect', handleDisconnect);
+
+    if (typeof provider.on === 'function') {
+      provider.on('disconnect', handleDisconnect);
+    }
 
     cleanups.push(() => {
       provider.removeListener?.('accountsChanged', handleAccountsChanged);
@@ -318,18 +250,13 @@ export function subscribeOKXEvents({
       if (document.visibilityState !== 'visible') return;
 
       const ready = await waitForOKXReady({
-        timeoutMs: 1500,
+        timeoutMs: 1200,
         delayMs: 150,
-        requireAddress: false
+        requireAddress: true
       });
 
-      const fallback =
-        ready.address ||
-        getFallbackAddress(ready.provider, ready.tronWeb) ||
-        null;
-
-      if (fallback && typeof onAccountsChanged === 'function') {
-        await onAccountsChanged(fallback);
+      if (ready.address && typeof onAccountsChanged === 'function') {
+        await onAccountsChanged(ready.address);
       }
     };
 
