@@ -6,24 +6,26 @@ function isBrowser() {
   return typeof window !== 'undefined';
 }
 
+function getUserAgent() {
+  if (!isBrowser()) return '';
+  return navigator.userAgent || '';
+}
+
+function isOKXInAppBrowser() {
+  const ua = getUserAgent();
+  return /OKX|OKApp/i.test(ua) || !!window?.okxwallet;
+}
+
 function normalizeAddress(value) {
   if (!value) return null;
 
-  if (typeof value === 'string') {
-    return value;
-  }
+  if (typeof value === 'string') return value;
 
-  if (typeof value?.address === 'string') {
-    return value.address;
-  }
+  if (typeof value?.address === 'string') return value.address;
 
-  if (typeof value?.base58 === 'string') {
-    return value.base58;
-  }
+  if (typeof value?.base58 === 'string') return value.base58;
 
-  if (Array.isArray(value) && typeof value[0] === 'string') {
-    return value[0];
-  }
+  if (Array.isArray(value) && typeof value[0] === 'string') return value[0];
 
   return null;
 }
@@ -33,6 +35,7 @@ function getTIP6963TronLinkProvider() {
 
   try {
     const announcedProviders = window.__fourteenTip6963Providers || [];
+
     const tronLinkEntry = announcedProviders.find(
       (item) =>
         item?.info?.rdns === 'org.tronlink.www' ||
@@ -40,6 +43,7 @@ function getTIP6963TronLinkProvider() {
     );
 
     return tronLinkEntry?.provider || null;
+
   } catch (error) {
     console.warn('[FourteenWallet][TronLink] TIP-6963 lookup failed:', error);
     return null;
@@ -49,7 +53,11 @@ function getTIP6963TronLinkProvider() {
 function getWindowTronLinkProvider() {
   if (!isBrowser()) return null;
 
-  if (window.tronLink) {
+  if (isOKXInAppBrowser()) {
+    return null;
+  }
+
+  if (window.tronLink && window.tronLink.ready !== undefined) {
     return window.tronLink;
   }
 
@@ -57,6 +65,11 @@ function getWindowTronLinkProvider() {
 }
 
 export function getTronLinkProvider() {
+
+  if (isOKXInAppBrowser()) {
+    return null;
+  }
+
   return getTIP6963TronLinkProvider() || getWindowTronLinkProvider();
 }
 
@@ -66,8 +79,11 @@ function getInjectedTronWeb() {
 }
 
 function getTronLinkState() {
+
   const provider = getTronLinkProvider();
+
   const tronWeb = getInjectedTronWeb();
+
   const address =
     tronWeb?.defaultAddress?.base58 ||
     provider?.tronWeb?.defaultAddress?.base58 ||
@@ -87,21 +103,31 @@ function getTronLinkState() {
 }
 
 function requestTIP6963Providers() {
+
   if (!isBrowser()) return;
 
+  if (isOKXInAppBrowser()) return;
+
   if (!window.__fourteenTip6963Initialized) {
+
     window.__fourteenTip6963Initialized = true;
-    window.__fourteenTip6963Providers = window.__fourteenTip6963Providers || [];
+
+    window.__fourteenTip6963Providers =
+      window.__fourteenTip6963Providers || [];
 
     window.addEventListener('TIP6963:announceProvider', (event) => {
+
       const detail = event?.detail;
+
       const provider = detail?.provider;
+
       const info = detail?.info;
 
       if (!provider || !info) return;
 
       const isTronLink =
-        info?.rdns === 'org.tronlink.www' || info?.name === 'TronLink';
+        info?.rdns === 'org.tronlink.www' ||
+        info?.name === 'TronLink';
 
       if (!isTronLink) return;
 
@@ -114,17 +140,25 @@ function requestTIP6963Providers() {
       if (!exists) {
         window.__fourteenTip6963Providers.push({ info, provider });
       }
+
     });
+
   }
 
   window.dispatchEvent(new Event('TIP6963:requestProvider'));
+
 }
 
 async function waitForTronLinkProvider(maxAttempts = 20, delay = 150) {
+
+  if (isOKXInAppBrowser()) return null;
+
   requestTIP6963Providers();
 
   for (let i = 0; i < maxAttempts; i += 1) {
+
     const provider = getTronLinkProvider();
+
     if (provider) {
       return provider;
     }
@@ -136,7 +170,18 @@ async function waitForTronLinkProvider(maxAttempts = 20, delay = 150) {
 }
 
 async function waitForReadyTronLink(maxAttempts = 20, delay = 200) {
+
+  if (isOKXInAppBrowser()) {
+    return {
+      provider: null,
+      tronWeb: null,
+      address: null,
+      ready: false
+    };
+  }
+
   for (let i = 0; i < maxAttempts; i += 1) {
+
     const state = getTronLinkState();
 
     if (state.ready && state.address && state.tronWeb) {
@@ -149,41 +194,18 @@ async function waitForReadyTronLink(maxAttempts = 20, delay = 200) {
   return getTronLinkState();
 }
 
-async function readAddressFromProvider(provider) {
-  if (!provider) return null;
-
-  try {
-    if (provider.tronWeb?.defaultAddress?.base58) {
-      return provider.tronWeb.defaultAddress.base58;
-    }
-  } catch (error) {
-    console.warn('[FourteenWallet][TronLink] provider tronWeb read failed:', error);
-  }
-
-  try {
-    if (typeof provider.request === 'function') {
-      const result = await provider.request({ method: 'eth_requestAccounts' });
-      const address = normalizeAddress(result);
-      if (address) return address;
-    }
-  } catch (error) {
-    console.warn('[FourteenWallet][TronLink] eth_requestAccounts failed:', error);
-  }
-
-  try {
-    if (typeof provider.request === 'function') {
-      const result = await provider.request({ method: 'tron_requestAccounts' });
-      const address = normalizeAddress(result);
-      if (address) return address;
-    }
-  } catch (error) {
-    console.warn('[FourteenWallet][TronLink] tron_requestAccounts failed:', error);
-  }
-
-  return null;
-}
-
 export function detectTronLink() {
+
+  if (isOKXInAppBrowser()) {
+    return {
+      installed: false,
+      ready: false,
+      tronWeb: null,
+      provider: null,
+      address: null
+    };
+  }
+
   requestTIP6963Providers();
 
   const state = getTronLinkState();
@@ -194,96 +216,5 @@ export function detectTronLink() {
     tronWeb: state.tronWeb || null,
     provider: state.provider || null,
     address: state.address || null
-  };
-}
-
-export async function connectTronLink() {
-  const provider = await waitForTronLinkProvider();
-
-  if (!provider) {
-    throw new Error('TronLink is not installed');
-  }
-
-  try {
-    if (!provider.ready || !provider.tronWeb?.defaultAddress?.base58) {
-      if (typeof provider.request === 'function') {
-        try {
-          await provider.request({ method: 'eth_requestAccounts' });
-        } catch (error) {
-          await provider.request({ method: 'tron_requestAccounts' });
-        }
-      }
-    }
-  } catch (error) {
-    throw new Error(error?.message || 'User rejected TronLink connection');
-  }
-
-  let state = await waitForReadyTronLink();
-
-  if (!state.address) {
-    const fallbackAddress = await readAddressFromProvider(provider);
-    if (fallbackAddress && provider.tronWeb) {
-      state = {
-        ...state,
-        address: fallbackAddress,
-        tronWeb: provider.tronWeb
-      };
-    }
-  }
-
-  if (!state.tronWeb?.defaultAddress?.base58) {
-    throw new Error('TronLink did not provide a ready account');
-  }
-
-  return {
-    walletType: 'tronlink',
-    provider,
-    tronWeb: state.tronWeb,
-    address: state.tronWeb.defaultAddress.base58
-  };
-}
-
-export function subscribeTronLinkEvents({ onAccountsChanged, onDisconnect } = {}) {
-  if (!isBrowser()) return () => {};
-
-  const provider = getTronLinkProvider();
-  const cleanups = [];
-
-  const handleAccountsChanged = async (payload) => {
-    const directAddress = normalizeAddress(payload);
-
-    if (directAddress) {
-      onAccountsChanged?.(directAddress);
-      return;
-    }
-
-    const state = await waitForReadyTronLink(3, 100);
-    onAccountsChanged?.(state?.address || null);
-  };
-
-  const handleDisconnect = () => {
-    onDisconnect?.();
-  };
-
-  if (provider?.on) {
-    provider.on('accountsChanged', handleAccountsChanged);
-    cleanups.push(() => {
-      provider.removeListener?.('accountsChanged', handleAccountsChanged);
-    });
-
-    provider.on('disconnect', handleDisconnect);
-    cleanups.push(() => {
-      provider.removeListener?.('disconnect', handleDisconnect);
-    });
-  }
-
-  return () => {
-    for (const cleanup of cleanups) {
-      try {
-        cleanup();
-      } catch (error) {
-        console.error('[FourteenWallet][TronLink] cleanup failed:', error);
-      }
-    }
   };
 }
