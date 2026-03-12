@@ -31,17 +31,9 @@ let unsubscribeAdapterEvents = null;
 let lastRefreshPromise = null;
 let connectRequestId = 0;
 
-function clearAdapterSubscriptions() {
-  if (!unsubscribeAdapterEvents) return;
-
-  try {
-    unsubscribeAdapterEvents();
-  } catch (error) {
-    console.error('[FourteenWallet] Failed to unsubscribe adapter events', error);
-  }
-
-  unsubscribeAdapterEvents = null;
-}
+/* ------------------------------------------------ */
+/* USER AGENT HELPERS                               */
+/* ------------------------------------------------ */
 
 function getUserAgent() {
   if (typeof navigator === 'undefined') return '';
@@ -50,7 +42,7 @@ function getUserAgent() {
 
 function isOKXInAppBrowser() {
   const ua = getUserAgent();
-  return /OKX|OKApp/i.test(ua) || !!window?.okxwallet;
+  return /OKX|OKApp|OKEx/i.test(ua) || !!window?.okxwallet;
 }
 
 function isBinanceInAppBrowser() {
@@ -62,6 +54,10 @@ function isTrustInAppBrowser() {
   const ua = getUserAgent();
   return /Trust|TrustWallet/i.test(ua) || !!window?.trustwallet || !!window?.trustWallet;
 }
+
+/* ------------------------------------------------ */
+/* WALLET DETECTION HELPERS                         */
+/* ------------------------------------------------ */
 
 function isTronLinkDetected(detected) {
   if (!detected) return false;
@@ -78,6 +74,7 @@ function isTronLinkDetected(detected) {
 }
 
 function resolveDetectedWallets(rawWallets = {}) {
+
   const wallets = {
     tronlink: Boolean(rawWallets.tronlink),
     okx: Boolean(rawWallets.okx),
@@ -88,38 +85,31 @@ function resolveDetectedWallets(rawWallets = {}) {
 
   if (wallets.okx && isOKXInAppBrowser()) {
     return {
-      tronlink: false,
-      okx: true,
-      binance: false,
-      trust: false,
-      generic: false
+      okx: true
     };
   }
 
   if (wallets.binance && isBinanceInAppBrowser()) {
     return {
-      tronlink: false,
-      okx: false,
-      binance: true,
-      trust: false,
-      generic: false
+      binance: true
     };
   }
 
   if (wallets.trust && isTrustInAppBrowser()) {
     return {
-      tronlink: false,
-      okx: false,
-      binance: false,
-      trust: true,
-      generic: false
+      trust: true
     };
   }
 
   return wallets;
 }
 
+/* ------------------------------------------------ */
+/* BALANCE                                          */
+/* ------------------------------------------------ */
+
 async function refreshBalance() {
+
   const state = getState();
 
   if (!state.connected || !state.tronWeb || !state.address) {
@@ -131,8 +121,14 @@ async function refreshBalance() {
   }
 
   lastRefreshPromise = (async () => {
+
     try {
-      const balanceTRX = await getTRXBalance(state.tronWeb, state.address);
+
+      const balanceTRX = await getTRXBalance(
+        state.tronWeb,
+        state.address
+      );
+
       const latestState = getState();
 
       if (!latestState.connected || latestState.address !== state.address) {
@@ -140,22 +136,36 @@ async function refreshBalance() {
       }
 
       setState({ balanceTRX });
+
       emit('balanceChanged', { balanceTRX });
 
       return balanceTRX;
+
     } catch (error) {
+
       console.error('[FourteenWallet] Failed to refresh balance', error);
+
       return null;
+
     } finally {
+
       lastRefreshPromise = null;
+
     }
+
   })();
 
   return lastRefreshPromise;
 }
 
+/* ------------------------------------------------ */
+/* ACCOUNT CHANGE                                   */
+/* ------------------------------------------------ */
+
 async function handleAccountChanged(address) {
+
   const nextAddress = address || null;
+
   const state = getState();
 
   if (!nextAddress) {
@@ -184,44 +194,31 @@ async function handleAccountChanged(address) {
   await refreshBalance();
 }
 
-function bindGenericProviderAccountsChanged(provider) {
-  if (!provider || typeof provider.on !== 'function') {
-    return () => {};
+/* ------------------------------------------------ */
+/* ADAPTER EVENTS                                   */
+/* ------------------------------------------------ */
+
+function clearAdapterSubscriptions() {
+
+  if (!unsubscribeAdapterEvents) return;
+
+  try {
+    unsubscribeAdapterEvents();
+  } catch (error) {
+    console.error('[FourteenWallet] Failed to unsubscribe adapter events', error);
   }
 
-  const handler = async (accounts) => {
-    const address = Array.isArray(accounts) ? accounts[0] : accounts;
-    await handleAccountChanged(address || null);
-  };
-
-  provider.on('accountsChanged', handler);
-
-  return () => {
-    provider.removeListener?.('accountsChanged', handler);
-  };
-}
-
-function shouldBindGenericListener(walletType, provider) {
-  if (!provider?.on) return false;
-
-  if (
-    walletType === 'tronlink' ||
-    walletType === 'okx' ||
-    walletType === 'binance' ||
-    walletType === 'trust'
-  ) {
-    return false;
-  }
-
-  return true;
+  unsubscribeAdapterEvents = null;
 }
 
 function bindAdapterEvents(walletType, provider) {
+
   clearAdapterSubscriptions();
 
   const cleanups = [];
 
   if (walletType === 'tronlink') {
+
     cleanups.push(
       subscribeTronLinkEvents({
         onAccountsChanged: async (address) => {
@@ -232,9 +229,11 @@ function bindAdapterEvents(walletType, provider) {
         }
       })
     );
+
   }
 
   if (walletType === 'okx') {
+
     cleanups.push(
       subscribeOKXEvents({
         onAccountsChanged: async (address) => {
@@ -245,9 +244,11 @@ function bindAdapterEvents(walletType, provider) {
         }
       })
     );
+
   }
 
   if (walletType === 'binance') {
+
     cleanups.push(
       subscribeBinanceEvents({
         onAccountsChanged: async (address) => {
@@ -258,9 +259,11 @@ function bindAdapterEvents(walletType, provider) {
         }
       })
     );
+
   }
 
   if (walletType === 'trust') {
+
     cleanups.push(
       subscribeTrustEvents({
         onAccountsChanged: async (address) => {
@@ -271,14 +274,13 @@ function bindAdapterEvents(walletType, provider) {
         }
       })
     );
-  }
 
-  if (shouldBindGenericListener(walletType, provider)) {
-    cleanups.push(bindGenericProviderAccountsChanged(provider));
   }
 
   unsubscribeAdapterEvents = () => {
+
     for (const cleanup of cleanups) {
+
       if (typeof cleanup !== 'function') continue;
 
       try {
@@ -286,31 +288,47 @@ function bindAdapterEvents(walletType, provider) {
       } catch (error) {
         console.error('[FourteenWallet] Adapter cleanup failed', error);
       }
+
     }
+
   };
+
 }
 
+/* ------------------------------------------------ */
+/* APPLY CONNECTION                                 */
+/* ------------------------------------------------ */
+
 async function applyConnection(result, requestId) {
+
   if (requestId !== connectRequestId) {
     return getState();
   }
 
   const nextState = {
+
     walletType: result.walletType,
+
     connected: true,
     connecting: false,
+
     address: result.address,
     shortAddress: shortenAddress(result.address),
+
     tronWeb: result.tronWeb,
     provider: result.provider,
+
     balanceTRX: null,
+
     isReady: true,
     lastError: null
+
   };
 
   setState(nextState);
 
   bindAdapterEvents(result.walletType, result.provider);
+
   await refreshBalance();
 
   if (requestId !== connectRequestId) {
@@ -318,10 +336,17 @@ async function applyConnection(result, requestId) {
   }
 
   emit('connected', getState());
+
   return getState();
+
 }
 
+/* ------------------------------------------------ */
+/* DETECT WALLETS                                   */
+/* ------------------------------------------------ */
+
 export function detectWallets() {
+
   const wallets = {};
 
   try {
@@ -348,13 +373,22 @@ export function detectWallets() {
     console.warn('[FourteenWallet] detect failed for trust:', error);
   }
 
-  try {
-    const tronLinkDetected = detectTronLink();
-    if (isTronLinkDetected(tronLinkDetected)) {
-      wallets.tronlink = true;
+  /* IMPORTANT: ignore TronLink inside OKX */
+
+  if (!isOKXInAppBrowser()) {
+
+    try {
+
+      const tronLinkDetected = detectTronLink();
+
+      if (isTronLinkDetected(tronLinkDetected)) {
+        wallets.tronlink = true;
+      }
+
+    } catch (error) {
+      console.warn('[FourteenWallet] detect failed for tronlink:', error);
     }
-  } catch (error) {
-    console.warn('[FourteenWallet] detect failed for tronlink:', error);
+
   }
 
   if (
@@ -366,9 +400,15 @@ export function detectWallets() {
   }
 
   return resolveDetectedWallets(wallets);
+
 }
 
+/* ------------------------------------------------ */
+/* AUTO DETECT                                      */
+/* ------------------------------------------------ */
+
 export async function autoDetectWallet() {
+
   const wallets = detectWallets();
 
   if (wallets.okx) return 'okx';
@@ -377,10 +417,17 @@ export async function autoDetectWallet() {
   if (wallets.tronlink) return 'tronlink';
 
   return null;
+
 }
 
+/* ------------------------------------------------ */
+/* CONNECT                                          */
+/* ------------------------------------------------ */
+
 export async function connect(walletType) {
-  const resolvedWalletType = walletType || await autoDetectWallet();
+
+  const resolvedWalletType =
+    walletType || await autoDetectWallet();
 
   if (!resolvedWalletType) {
     throw new Error('No supported wallet found');
@@ -396,17 +443,26 @@ export async function connect(walletType) {
   });
 
   try {
+
     let result = null;
 
     if (resolvedWalletType === 'tronlink') {
       result = await connectTronLink();
-    } else if (resolvedWalletType === 'okx') {
+    }
+
+    else if (resolvedWalletType === 'okx') {
       result = await connectOKX();
-    } else if (resolvedWalletType === 'binance') {
+    }
+
+    else if (resolvedWalletType === 'binance') {
       result = await connectBinance();
-    } else if (resolvedWalletType === 'trust') {
+    }
+
+    else if (resolvedWalletType === 'trust') {
       result = await connectTrust();
-    } else {
+    }
+
+    else {
       throw new Error('Unsupported wallet');
     }
 
@@ -415,51 +471,65 @@ export async function connect(walletType) {
     }
 
     return await applyConnection(result, requestId);
-  } catch (error) {
-    const message = error?.message || 'Wallet connection failed';
+
+  }
+
+  catch (error) {
+
+    const message =
+      error?.message || 'Wallet connection failed';
 
     if (requestId === connectRequestId) {
+
       setState({
+
         connecting: false,
         connected: false,
         isReady: false,
+
         walletType: null,
+
         address: null,
         shortAddress: null,
+
         tronWeb: null,
         provider: null,
+
         balanceTRX: null,
+
         lastError: message
+
       });
 
       emit('error', { message, error });
+
     }
 
     throw error;
+
   }
+
 }
 
-export async function autoConnect() {
-  const walletType = await autoDetectWallet();
-
-  if (!walletType) {
-    return null;
-  }
-
-  try {
-    return await connect(walletType);
-  } catch (error) {
-    console.error('[FourteenWallet] autoConnect failed', error);
-    return null;
-  }
-}
+/* ------------------------------------------------ */
+/* DISCONNECT                                       */
+/* ------------------------------------------------ */
 
 export function disconnect() {
+
   clearAdapterSubscriptions();
+
   lastRefreshPromise = null;
+
   resetState();
+
   emit('disconnected', { connected: false });
+
 }
+
+/* ------------------------------------------------ */
+/* GETTERS                                          */
+/* ------------------------------------------------ */
 
 export function getAddress() {
   return getState().address;
@@ -487,6 +557,7 @@ export function isReady() {
 }
 
 export async function getBalanceTRX() {
+
   const state = getState();
 
   if (state.balanceTRX !== null) {
@@ -494,6 +565,7 @@ export async function getBalanceTRX() {
   }
 
   return refreshBalance();
+
 }
 
 export function getWalletState() {
