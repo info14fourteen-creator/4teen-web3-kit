@@ -218,3 +218,42 @@ export function detectTronLink() {
     address: state.address || null
   };
 }
+
+export function subscribeTronLinkEvents({ onAccountsChanged, onDisconnect } = {}) {
+
+  if (typeof window === 'undefined') {
+    return () => {};
+  }
+
+  const provider = window.tronLink;
+
+  if (!provider || typeof provider.on !== 'function') {
+    return () => {};
+  }
+
+  const handleAccountsChanged = (accounts) => {
+
+    const address =
+      Array.isArray(accounts) ? accounts[0] : accounts;
+
+    onAccountsChanged?.(address || null);
+  };
+
+  const handleDisconnect = () => {
+    onDisconnect?.();
+  };
+
+  provider.on('accountsChanged', handleAccountsChanged);
+  provider.on('disconnect', handleDisconnect);
+
+  return () => {
+
+    try {
+      provider.removeListener?.('accountsChanged', handleAccountsChanged);
+      provider.removeListener?.('disconnect', handleDisconnect);
+    } catch (error) {
+      console.warn('[FourteenWallet][TronLink] cleanup failed', error);
+    }
+
+  };
+}
