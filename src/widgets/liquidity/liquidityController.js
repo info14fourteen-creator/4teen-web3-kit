@@ -1,5 +1,11 @@
 import './liquidityController.css';
 
+const ACTIVE_INSTANCES = new Map();
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 function formatUtc(ts) {
   return new Date(ts).toLocaleString('en-GB', {
     timeZone: 'UTC',
@@ -19,6 +25,40 @@ function trxAmount(value) {
   return (Number(value || 0) / 1e6).toFixed(2);
 }
 
+function extractTxid(result) {
+  if (!result) return '';
+  if (typeof result === 'string') return result;
+  if (typeof result?.txid === 'string') return result.txid;
+  if (typeof result?.txID === 'string') return result.txID;
+  if (typeof result?.transaction === 'string') return result.transaction;
+  if (typeof result?.transaction?.txID === 'string') return result.transaction.txID;
+  if (typeof result?.receipt?.txID === 'string') return result.receipt.txID;
+  if (typeof result?.id === 'string') return result.id;
+  return '';
+}
+
+function normalizeError(error) {
+  const raw =
+    error?.message ||
+    error?.error ||
+    error?.data?.message ||
+    error?.response?.data?.message ||
+    'Unknown error';
+
+  const text = String(raw);
+
+  if (
+    text.includes('User rejected') ||
+    text.includes('rejected') ||
+    text.includes('denied') ||
+    text.includes('Confirmation declined')
+  ) {
+    return 'Transaction was rejected in wallet.';
+  }
+
+  return text;
+}
+
 export function mountLiquidityController({
   rootId,
   controllerAddress = 'TVKBLwg222skKnZ3F3boTiH35KC7nvYEuZ',
@@ -35,12 +75,15 @@ export function mountLiquidityController({
     throw new Error('FourteenWallet is not loaded');
   }
 
-  const wallet = window.FourteenWallet;
-
-  if (root.dataset.liquidityMounted === 'true') {
-    return;
+  if (ACTIVE_INSTANCES.has(rootId)) {
+    try {
+      ACTIVE_INSTANCES.get(rootId).destroy();
+    } catch (error) {
+      console.error('Failed to destroy previous liquidity instance:', error);
+    }
   }
-  root.dataset.liquidityMounted = 'true';
+
+  const wallet = window.FourteenWallet;
 
   root.innerHTML = `
     <div class="fourteen-liquidity-widget">
@@ -152,8 +195,14 @@ export function mountLiquidityController({
   let connected = false;
   let contract = null;
   let busy = false;
+  let isDestroyed = false;
+
+  function isAlive() {
+    return !isDestroyed && document.body.contains(root);
+  }
 
   function setStatus(text = '', isError = false) {
+    if (!isAlive()) return;
     statusEl.textContent = text;
     statusEl.classList.toggle('error', isError);
   }
@@ -161,6 +210,7 @@ export function mountLiquidityController({
   function resetWalletUi() {
     connected = false;
     contract = null;
+    if (!isAlive()) return;
     walletInfoEl.textContent = '';
     buttonEl.disabled = false;
     buttonEl.classList.remove('connected');
@@ -177,6 +227,38 @@ export function mountLiquidityController({
   function renderTrxEmpty(message) {
     trxTableEl.innerHTML = `<tr><td colspan="3" class="muted">${message}</td></tr>`;
     trxMobileEl.innerHTML = `<div class="fourteen-liquidity-empty">${message}</div>`;
+  }
+
+  async function getReadyTronWeb(timeoutMs = 12000) {
+    const started = Date.now();
+
+    while (Date.now() - started < timeoutMs) {
+      const tronWeb = wallet.getTronWeb?.();
+      const address = tronWeb?.defaultAddress?.base58 || wallet.getAddress?.() || null;
+
+      if (tronWeb && address) {
+        return tronWeb;
+      }
+
+      await sleep(150);
+    }
+
+    throw new Error('Wallet is connected, but TronWeb address is not ready yet.');
+  }
+
+  async function initContract() {
+    const tronWeb = await getReadyTronWeb();
+
+    if (typeof tronWeb.contract !== 'function') {
+      throw new Error('TronWeb contract API is unavailable.');
+    }
+
+    const factory = tronWeb.contract();
+    if (!factory || typeof factory.at !== 'function') {
+      throw new Error('TronWeb contract factory is unavailable.');
+    }
+
+    return await factory.at(controllerAddress);
   }
 
   async function fetchEvents(eventName, limit = 20) {
@@ -213,9 +295,9 @@ export function mountLiquidityController({
         .map((e) => `
           <tr>
             <td>${formatUtc(e.block_timestamp)}</td>
-            <td>${trxAmount(e.result.totalAmount)} TRX</td>
-            <td>${trxAmount(e.result.amountA)} TRX</td>
-            <td>${trxAmount(e.result.amountB)} TRX</td>
+            <td>${trxAmount(e.result?.totalAmount)} TRX</td>
+            <td>${trxAmount(e.result?.amountA)} TRX</td>
+            <td>${trxAmount(e.result?.amountB)} TRX</td>
             <td>
               <a class="fourteen-liquidity-link" href="${explorerBase}${e.transaction_id}" target="_blank" rel="noopener noreferrer">
                 ${shortTx(e.transaction_id)}
@@ -229,7 +311,7 @@ export function mountLiquidityController({
         .map((e) => `
           <div class="fourteen-liquidity-event-card">
             <div class="fourteen-liquidity-event-top">
-              <div class="fourteen-liquidity-event-title">${trxAmount(e.result.totalAmount)} TRX</div>
+              <div class="fourteen-liquidity-event-title">${trxAmount(e.result?.totalAmount)} TRX</div>
               <div class="fourteen-liquidity-event-badge">Executed</div>
             </div>
 
@@ -241,12 +323,12 @@ export function mountLiquidityController({
 
               <div class="fourteen-liquidity-event-item">
                 <div class="fourteen-liquidity-event-label">JustMoney</div>
-                <div class="fourteen-liquidity-event-value">${trxAmount(e.result.amountA)} TRX</div>
+                <div class="fourteen-liquidity-event-value">${trxAmount(e.result?.amountA)} TRX</div>
               </div>
 
               <div class="fourteen-liquidity-event-item">
                 <div class="fourteen-liquidity-event-label">Sun.io</div>
-                <div class="fourteen-liquidity-event-value">${trxAmount(e.result.amountB)} TRX</div>
+                <div class="fourteen-liquidity-event-value">${trxAmount(e.result?.amountB)} TRX</div>
               </div>
 
               <div class="fourteen-liquidity-event-item">
@@ -277,13 +359,13 @@ export function mountLiquidityController({
         return;
       }
 
-      lastReceivedEl.textContent = `${trxAmount(data[0].result.amount)} TRX`;
+      lastReceivedEl.textContent = `${trxAmount(data[0].result?.amount)} TRX`;
 
       trxTableEl.innerHTML = data
         .map((e) => `
           <tr>
             <td>${formatUtc(e.block_timestamp)}</td>
-            <td>${trxAmount(e.result.amount)} TRX</td>
+            <td>${trxAmount(e.result?.amount)} TRX</td>
             <td>
               <a class="fourteen-liquidity-link" href="${explorerBase}${e.transaction_id}" target="_blank" rel="noopener noreferrer">
                 ${shortTx(e.transaction_id)}
@@ -297,7 +379,7 @@ export function mountLiquidityController({
         .map((e) => `
           <div class="fourteen-liquidity-event-card">
             <div class="fourteen-liquidity-event-top">
-              <div class="fourteen-liquidity-event-title">${trxAmount(e.result.amount)} TRX</div>
+              <div class="fourteen-liquidity-event-title">${trxAmount(e.result?.amount)} TRX</div>
               <div class="fourteen-liquidity-event-badge">Received</div>
             </div>
 
@@ -336,12 +418,8 @@ export function mountLiquidityController({
 
       await wallet.connect();
 
-      const tronWeb = wallet.getTronWeb();
-      if (!tronWeb?.defaultAddress?.base58) {
-        throw new Error('Wallet not ready');
-      }
-
-      contract = await tronWeb.contract().at(controllerAddress);
+      const tronWeb = await getReadyTronWeb(12000);
+      contract = await initContract();
       connected = true;
 
       const userAddress = tronWeb.defaultAddress.base58;
@@ -355,14 +433,14 @@ export function mountLiquidityController({
     } catch (error) {
       console.error('liquidity connect error:', error);
       resetWalletUi();
-      setStatus('Failed to connect: ' + (error?.message || error), true);
+      setStatus('Failed to connect: ' + normalizeError(error), true);
     } finally {
       busy = false;
     }
   }
 
   async function executeLiquidity() {
-    if (!contract || busy) return;
+    if (busy) return;
 
     try {
       busy = true;
@@ -370,39 +448,74 @@ export function mountLiquidityController({
       buttonEl.textContent = 'PROCESSING...';
       setStatus('Sending transaction...');
 
-      const tx = await contract.executeLiquidity().send({ shouldPollResponse: true });
-      const txid = typeof tx === 'string' ? tx : (tx?.txid || tx?.transaction || '');
+      if (!connected || !contract) {
+        const tronWeb = await getReadyTronWeb(12000);
+        if (!tronWeb?.defaultAddress?.base58) {
+          throw new Error('Wallet not ready');
+        }
+        contract = await initContract();
+        connected = true;
+      }
 
-      setStatus(
-        txid
-          ? `Done · ${txid}`
-          : 'Execution completed.'
-      );
+      const tx = await contract.executeLiquidity().send({ shouldPollResponse: true });
+      const txid = extractTxid(tx);
+
+      setStatus(txid ? `Done · ${txid}` : 'Execution completed.');
 
       await loadExecuteEvents();
       await loadTrxReceived();
     } catch (error) {
       console.error('executeLiquidity error:', error);
-      setStatus(error?.message || 'Transaction failed', true);
+      setStatus(normalizeError(error), true);
     } finally {
       busy = false;
-      buttonEl.disabled = false;
-      buttonEl.textContent = 'EXECUTE LIQUIDITY';
+      if (connected) {
+        buttonEl.disabled = false;
+        buttonEl.textContent = 'EXECUTE LIQUIDITY';
+      } else {
+        buttonEl.disabled = false;
+        buttonEl.textContent = 'CONNECT WALLET';
+      }
     }
   }
 
-  buttonEl.addEventListener('click', async () => {
+  async function handleButtonClick() {
     if (!connected) {
       await connectWalletHandler();
       return;
     }
 
     await executeLiquidity();
-  });
+  }
 
-  wallet.on('disconnected', resetWalletUi);
-  wallet.on('accountChanged', resetWalletUi);
+  const walletEvents = ['disconnected', 'accountChanged'];
+  const walletHandler = () => {
+    resetWalletUi();
+  };
+
+  buttonEl.addEventListener('click', handleButtonClick);
+
+  if (typeof wallet.on === 'function') {
+    walletEvents.forEach((eventName) => {
+      wallet.on(eventName, walletHandler);
+    });
+  }
+
+  function destroy() {
+    isDestroyed = true;
+    buttonEl.removeEventListener('click', handleButtonClick);
+
+    if (typeof wallet.off === 'function') {
+      walletEvents.forEach((eventName) => {
+        wallet.off(eventName, walletHandler);
+      });
+    }
+  }
+
+  ACTIVE_INSTANCES.set(rootId, { destroy });
 
   loadExecuteEvents();
   loadTrxReceived();
+
+  return { destroy };
 }
