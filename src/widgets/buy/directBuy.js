@@ -147,7 +147,6 @@ export function mountDirectBuy({
 
   let walletBalance = 0;
   let contract = null;
-  let connected = false;
   let isSubmitting = false;
   let isDestroyed = false;
 
@@ -165,10 +164,12 @@ export function mountDirectBuy({
     return Math.max(0, walletBalance - reserveTRX);
   }
 
-  function updateConnectedUi() {
-    if (!isAlive()) return;
+  function isConnectedSafe() {
+    return !!wallet.isConnected?.();
+  }
 
-    connected = !!wallet.isConnected?.();
+  function updateUi() {
+    const connected = isConnectedSafe();
 
     inputEl.disabled = !connected || isSubmitting;
     inputEl.placeholder = connected ? inputLabel : 'Connect wallet first';
@@ -197,11 +198,11 @@ export function mountDirectBuy({
     return contract;
   }
 
-  async function getBalance() {
-    if (!wallet.isConnected?.()) {
+  async function refreshBalance() {
+    if (!isConnectedSafe()) {
       walletBalance = 0;
       balanceEl.textContent = '0.000000 TRX';
-      updateConnectedUi();
+      updateUi();
       return 0;
     }
 
@@ -211,14 +212,14 @@ export function mountDirectBuy({
 
       walletBalance = Number.isFinite(numeric) ? numeric : 0;
       balanceEl.textContent = `${walletBalance.toFixed(6)} TRX`;
+      updateUi();
 
-      updateConnectedUi();
       return walletBalance;
     } catch (error) {
-      console.error('[DirectBuy] getBalance failed:', error);
+      console.error('[DirectBuy] refreshBalance failed:', error);
       walletBalance = 0;
       balanceEl.textContent = '0.000000 TRX';
-      updateConnectedUi();
+      updateUi();
       return 0;
     }
   }
@@ -227,13 +228,11 @@ export function mountDirectBuy({
     setStatus('Connecting wallet...');
 
     await wallet.connect();
-
     await sleep(250);
     await ensureContract();
-    await getBalance();
+    await refreshBalance();
 
-    connected = true;
-    updateConnectedUi();
+    updateUi();
     setStatus('');
   }
 
@@ -248,7 +247,7 @@ export function mountDirectBuy({
         return;
       }
 
-      await getBalance();
+      await refreshBalance();
 
       const max = getMaxAllowed();
 
@@ -260,7 +259,7 @@ export function mountDirectBuy({
       const valueSun = Math.round(amount * 1e6);
 
       isSubmitting = true;
-      updateConnectedUi();
+      updateUi();
       setStatus('Waiting wallet confirmation...');
 
       const activeContract = await ensureContract();
@@ -276,7 +275,7 @@ export function mountDirectBuy({
       inputEl.value = '';
 
       await sleep(1500);
-      await getBalance();
+      await refreshBalance();
 
       setStatus('');
     } catch (err) {
@@ -285,13 +284,13 @@ export function mountDirectBuy({
       createBottomNotice(msg, '', true);
     } finally {
       isSubmitting = false;
-      updateConnectedUi();
+      updateUi();
     }
   }
 
   async function handleButtonClick() {
     try {
-      if (!wallet.isConnected?.()) {
+      if (!isConnectedSafe()) {
         await connectWallet();
       } else {
         await buy();
@@ -301,7 +300,7 @@ export function mountDirectBuy({
       setStatus(msg, true);
       createBottomNotice(msg, '', true);
       isSubmitting = false;
-      updateConnectedUi();
+      updateUi();
     }
   }
 
@@ -309,7 +308,7 @@ export function mountDirectBuy({
     if (isSubmitting) return;
 
     try {
-      await getBalance();
+      await refreshBalance();
       setStatus('');
     } catch (error) {
       setStatus(normalizeError(error), true);
@@ -318,12 +317,11 @@ export function mountDirectBuy({
 
   function handleWalletChange() {
     contract = null;
-    connected = !!wallet.isConnected?.();
-    updateConnectedUi();
+    updateUi();
 
-    if (connected) {
-      getBalance().catch((error) => {
-        console.error('[DirectBuy] wallet change balance refresh failed:', error);
+    if (isConnectedSafe()) {
+      refreshBalance().catch((error) => {
+        console.error('[DirectBuy] wallet change refresh failed:', error);
       });
     } else {
       walletBalance = 0;
@@ -339,16 +337,13 @@ export function mountDirectBuy({
   const offConnected = wallet.on?.('connected', handleWalletChange);
   const offDisconnected = wallet.on?.('disconnected', handleWalletChange);
   const offAccountChanged = wallet.on?.('accountChanged', handleWalletChange);
-  const offBalanceChanged = wallet.on?.('balanceChanged', async () => {
-    await getBalance();
-  });
+  const offBalanceChanged = wallet.on?.('balanceChanged', handleWalletChange);
 
-  connected = !!wallet.isConnected?.();
-  updateConnectedUi();
+  updateUi();
 
-  if (connected) {
+  if (isConnectedSafe()) {
     ensureContract()
-      .then(() => getBalance())
+      .then(() => refreshBalance())
       .catch((error) => {
         console.error('[DirectBuy] initial restore failed:', error);
       });
