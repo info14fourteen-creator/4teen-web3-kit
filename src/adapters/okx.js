@@ -11,22 +11,6 @@ function getUserAgent() {
   return navigator.userAgent || '';
 }
 
-function readAddressFromTronWeb(tronWeb) {
-  return tronWeb?.defaultAddress?.base58 || null;
-}
-
-function normalizeAccountsPayload(accounts) {
-  if (Array.isArray(accounts)) {
-    return accounts[0] || null;
-  }
-
-  if (typeof accounts === 'string') {
-    return accounts || null;
-  }
-
-  return null;
-}
-
 function isOKXEnvironment(win = getWindowSafe()) {
   if (!win) return false;
 
@@ -35,6 +19,37 @@ function isOKXEnvironment(win = getWindowSafe()) {
     win.okwallet ||
     /OKX|OKApp|OKEx/i.test(getUserAgent())
   );
+}
+
+function readAddressFromTronWeb(tronWeb) {
+  return (
+    tronWeb?.defaultAddress?.base58 ||
+    tronWeb?.defaultAddress?.address ||
+    null
+  );
+}
+
+function normalizeAccountsPayload(accounts) {
+  if (!accounts) return null;
+
+  if (Array.isArray(accounts)) {
+    return accounts[0] || null;
+  }
+
+  if (typeof accounts === 'string') {
+    return accounts || null;
+  }
+
+  if (typeof accounts === 'object') {
+    return (
+      accounts.address ||
+      accounts.base58 ||
+      accounts[0] ||
+      null
+    );
+  }
+
+  return null;
 }
 
 export function getOKXProvider() {
@@ -52,8 +67,8 @@ export function getOKXProvider() {
 }
 
 export function getOKXTronWeb() {
-  const provider = getOKXProvider();
   const win = getWindowSafe();
+  const provider = getOKXProvider();
 
   return (
     provider?.tronWeb ||
@@ -69,10 +84,11 @@ export function detectOKX() {
   const win = getWindowSafe();
   if (!win) return false;
 
-  if (isOKXEnvironment(win)) return true;
+  if (isOKXEnvironment(win)) {
+    return true;
+  }
 
-  const provider = getOKXProvider();
-  return !!provider;
+  return !!getOKXProvider();
 }
 
 async function requestAccounts(provider) {
@@ -101,6 +117,16 @@ async function requestAccounts(provider) {
   return null;
 }
 
+function getFallbackAddress(provider, tronWeb) {
+  return (
+    normalizeAccountsPayload(provider?.selectedAddress) ||
+    normalizeAccountsPayload(provider?.address) ||
+    normalizeAccountsPayload(provider?.defaultAddress?.base58) ||
+    readAddressFromTronWeb(tronWeb) ||
+    null
+  );
+}
+
 async function waitForOKXReady(options = {}) {
   const {
     timeoutMs = 15000,
@@ -111,11 +137,13 @@ async function waitForOKXReady(options = {}) {
   const startedAt = Date.now();
 
   while (Date.now() - startedAt < timeoutMs) {
+    const provider = getOKXProvider();
     const tronWeb = getOKXTronWeb();
-    const address = readAddressFromTronWeb(tronWeb);
+    const address = getFallbackAddress(provider, tronWeb);
 
     if (tronWeb && (!requireAddress || address)) {
       return {
+        provider,
         tronWeb,
         address
       };
@@ -125,7 +153,8 @@ async function waitForOKXReady(options = {}) {
   }
 
   return {
-    tronWeb: null,
+    provider: getOKXProvider(),
+    tronWeb: getOKXTronWeb(),
     address: null
   };
 }
@@ -150,18 +179,23 @@ export async function connectOKX() {
   });
 
   if (!ready.tronWeb || !ready.address) {
-    await sleep(500);
+    await sleep(600);
 
     ready = await waitForOKXReady({
       timeoutMs: 10000,
       delayMs: 250,
-      requireAddress: true
+      requireAddress: false
     });
   }
 
-  const address = ready.address || requestedAddress || null;
+  const tronWeb = ready.tronWeb;
+  const address =
+    ready.address ||
+    requestedAddress ||
+    getFallbackAddress(provider, tronWeb) ||
+    null;
 
-  if (!ready.tronWeb) {
+  if (!tronWeb) {
     throw new Error('OKX tronWeb is not available');
   }
 
@@ -172,8 +206,8 @@ export async function connectOKX() {
   return {
     walletType: 'okx',
     address,
-    tronWeb: ready.tronWeb,
-    provider
+    tronWeb,
+    provider: ready.provider || provider
   };
 }
 
@@ -228,10 +262,15 @@ export function subscribeOKXEvents({
     const ready = await waitForOKXReady({
       timeoutMs: 2500,
       delayMs: 150,
-      requireAddress: true
+      requireAddress: false
     });
 
-    await onAccountsChanged(ready.address || null);
+    const fallback =
+      ready.address ||
+      getFallbackAddress(ready.provider, ready.tronWeb) ||
+      null;
+
+    await onAccountsChanged(fallback);
   };
 
   if (provider?.on) {
@@ -279,13 +318,18 @@ export function subscribeOKXEvents({
       if (document.visibilityState !== 'visible') return;
 
       const ready = await waitForOKXReady({
-        timeoutMs: 1200,
+        timeoutMs: 1500,
         delayMs: 150,
-        requireAddress: true
+        requireAddress: false
       });
 
-      if (ready.address && typeof onAccountsChanged === 'function') {
-        await onAccountsChanged(ready.address);
+      const fallback =
+        ready.address ||
+        getFallbackAddress(ready.provider, ready.tronWeb) ||
+        null;
+
+      if (fallback && typeof onAccountsChanged === 'function') {
+        await onAccountsChanged(fallback);
       }
     };
 
