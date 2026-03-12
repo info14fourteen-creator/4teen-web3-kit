@@ -1,3 +1,6 @@
+console.log('WALLET_MANAGER_BUILD', 'wm-okx-hotfix-v3');
+window.__FW_WALLET_MANAGER_BUILD__ = 'wm-okx-hotfix-v3';
+
 import { emit, on, off } from './events.js';
 import { getState, setState, resetState } from './state.js';
 import { shortenAddress } from '../utils/address.js';
@@ -349,7 +352,7 @@ export function detectWallets() {
     window.__FW_LAST_DETECT__ = resolved;
     window.__FW_WALLET_MANAGER_BUILD__ = WALLET_MANAGER_BUILD;
   } catch {}
-
+window.__FW_LAST_DETECT__ = resolved;
   return resolved;
 }
 
