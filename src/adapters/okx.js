@@ -27,9 +27,10 @@ export function getOKXProvider() {
   if (!win) return null;
 
   return (
-    win.okxwallet?.tronLink ||
     win.okxwallet?.tron ||
+    win.okxwallet?.web3?.tron ||
     win.okxwallet ||
+    win.okxwallet?.tronLink ||
     null
   );
 }
@@ -40,21 +41,19 @@ export function getOKXTronWeb() {
   return (
     provider?.tronWeb ||
     provider?.sunWeb ||
+    provider?.web3?.tronWeb ||
     null
   );
 }
 
 export function detectOKX() {
-  const provider = getOKXProvider();
+  const win = getWindowSafe();
+  if (!win) return false;
 
-  return !!(
-    provider &&
-    (
-      typeof provider.request === 'function' ||
-      !!provider.tronWeb ||
-      !!provider.sunWeb
-    )
-  );
+  if (win.okxwallet) return true;
+
+  const provider = getOKXProvider();
+  return !!provider;
 }
 
 async function requestAccounts(provider) {
@@ -65,6 +64,15 @@ async function requestAccounts(provider) {
   if (typeof provider.request === 'function') {
     try {
       const result = await provider.request({ method: 'tron_requestAccounts' });
+      return normalizeAccountsPayload(result);
+    } catch (error) {
+      throw new Error(error?.message || 'User rejected OKX connection');
+    }
+  }
+
+  if (typeof provider.connect === 'function') {
+    try {
+      const result = await provider.connect();
       return normalizeAccountsPayload(result);
     } catch (error) {
       throw new Error(error?.message || 'User rejected OKX connection');
@@ -88,19 +96,13 @@ async function waitForOKXReady(options = {}) {
     const address = readAddressFromTronWeb(tronWeb);
 
     if (tronWeb && (!requireAddress || address)) {
-      return {
-        tronWeb,
-        address
-      };
+      return { tronWeb, address };
     }
 
     await sleep(delayMs);
   }
 
-  return {
-    tronWeb: null,
-    address: null
-  };
+  return { tronWeb: null, address: null };
 }
 
 export async function connectOKX() {
@@ -109,6 +111,10 @@ export async function connectOKX() {
   }
 
   const provider = getOKXProvider();
+  if (!provider) {
+    throw new Error('OKX provider is unavailable');
+  }
+
   const requestedAddress = await requestAccounts(provider);
 
   let ready = await waitForOKXReady({
@@ -150,11 +156,7 @@ function parseMessageEventAddress(event) {
   if (!data) return null;
 
   const message = data.message || data.data || data;
-  const action =
-    message?.action ||
-    message?.type ||
-    data?.action ||
-    data?.type;
+  const action = message?.action || message?.type || data?.action || data?.type;
 
   const looksRelevant =
     action === 'accountsChanged' ||
@@ -176,10 +178,7 @@ function parseMessageEventAddress(event) {
   );
 }
 
-export function subscribeOKXEvents({
-  onAccountsChanged,
-  onDisconnect
-} = {}) {
+export function subscribeOKXEvents({ onAccountsChanged, onDisconnect } = {}) {
   const provider = getOKXProvider();
   const cleanups = [];
 
@@ -215,10 +214,7 @@ export function subscribeOKXEvents({
     };
 
     provider.on('accountsChanged', handleAccountsChanged);
-
-    if (typeof provider.on === 'function') {
-      provider.on('disconnect', handleDisconnect);
-    }
+    provider.on?.('disconnect', handleDisconnect);
 
     cleanups.push(() => {
       provider.removeListener?.('accountsChanged', handleAccountsChanged);
@@ -227,11 +223,9 @@ export function subscribeOKXEvents({
   }
 
   const win = getWindowSafe();
-
   if (win) {
     const handleMessage = async (event) => {
       const nextAddress = parseMessageEventAddress(event);
-
       if (nextAddress === null) {
         return;
       }
@@ -240,7 +234,6 @@ export function subscribeOKXEvents({
     };
 
     win.addEventListener('message', handleMessage);
-
     cleanups.push(() => {
       win.removeEventListener('message', handleMessage);
     });
@@ -262,7 +255,6 @@ export function subscribeOKXEvents({
 
     if (typeof document !== 'undefined') {
       document.addEventListener('visibilitychange', handleVisibilityChange);
-
       cleanups.push(() => {
         document.removeEventListener('visibilitychange', handleVisibilityChange);
       });
