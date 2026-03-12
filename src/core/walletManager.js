@@ -43,6 +43,23 @@ function clearAdapterSubscriptions() {
   unsubscribeAdapterEvents = null;
 }
 
+function getUserAgent() {
+  if (typeof navigator === 'undefined') return '';
+  return navigator.userAgent || '';
+}
+
+function isOKXInAppBrowser() {
+  return /OKX|OKApp/i.test(getUserAgent());
+}
+
+function isBinanceInAppBrowser() {
+  return /Binance/i.test(getUserAgent());
+}
+
+function isTrustInAppBrowser() {
+  return /Trust|TrustWallet/i.test(getUserAgent());
+}
+
 async function refreshBalance() {
   const state = getState();
 
@@ -257,6 +274,22 @@ function isTronLinkDetected(detected) {
   return false;
 }
 
+function resolvePreferredWallet(wallets) {
+  if (isOKXInAppBrowser() && wallets.okx) {
+    return { okx: true };
+  }
+
+  if (isBinanceInAppBrowser() && wallets.binance) {
+    return { binance: true };
+  }
+
+  if (isTrustInAppBrowser() && wallets.trust) {
+    return { trust: true };
+  }
+
+  return wallets;
+}
+
 export function detectWallets() {
   const wallets = {};
 
@@ -301,17 +334,16 @@ export function detectWallets() {
     wallets.generic = true;
   }
 
-  return wallets;
+  return resolvePreferredWallet(wallets);
 }
 
 export async function autoDetectWallet() {
   const wallets = detectWallets();
 
-  // Prefer wallets with the most stable TRON injection first
-  if (wallets.tronlink) return 'tronlink';
   if (wallets.okx) return 'okx';
   if (wallets.binance) return 'binance';
   if (wallets.trust) return 'trust';
+  if (wallets.tronlink) return 'tronlink';
 
   return null;
 }
