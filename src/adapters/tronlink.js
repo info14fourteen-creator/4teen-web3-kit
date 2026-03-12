@@ -6,28 +6,22 @@ function getWindowSafe() {
   return typeof window !== 'undefined' ? window : null;
 }
 
+function getUserAgent() {
+  if (typeof navigator === 'undefined') return '';
+  return navigator.userAgent || '';
+}
+
 function readAddressFromTronWeb(tronWeb) {
   return tronWeb?.defaultAddress?.base58 || null;
 }
 
-function isOKXEnvironment(win) {
+function isOKXEnvironment(win = getWindowSafe()) {
   if (!win) return false;
 
   return Boolean(
     win.okxwallet ||
-    win.okexchain ||
-    /OKX|OKApp/i.test(navigator?.userAgent || '')
-  );
-}
-
-function isLikelyOKXProvider(provider) {
-  if (!provider) return false;
-
-  return Boolean(
-    provider.isOkxWallet ||
-    provider.isOKX ||
-    provider.okxwallet ||
-    provider.isOkexWallet
+    win.okwallet ||
+    /OKX|OKApp|OKEx/i.test(getUserAgent())
   );
 }
 
@@ -35,54 +29,24 @@ export function getTronLinkProvider() {
   const win = getWindowSafe();
   if (!win) return null;
 
-  const provider =
-    win.tronLink ||
-    null;
-
-  if (!provider) {
+  /* HARD BLOCK: inside OKX browser TronLink must never be treated as separate wallet */
+  if (isOKXEnvironment(win)) {
     return null;
   }
 
-  if (isLikelyOKXProvider(provider)) {
-    return null;
-  }
-
-  if (isOKXEnvironment(win) && !provider.ready && !provider.tronWeb) {
-    return null;
-  }
-
-  return provider;
+  return win.tronLink || null;
 }
 
 export function getTronLinkTronWeb() {
   const win = getWindowSafe();
   if (!win) return null;
 
+  if (isOKXEnvironment(win)) {
+    return null;
+  }
+
   const provider = getTronLinkProvider();
-  const tronWeb =
-    provider?.tronWeb ||
-    win.tronWeb ||
-    null;
-
-  if (!tronWeb) {
-    return null;
-  }
-
-  const providerCandidate =
-    tronWeb?.provider ||
-    tronWeb?.currentProvider ||
-    provider ||
-    null;
-
-  if (isLikelyOKXProvider(providerCandidate)) {
-    return null;
-  }
-
-  if (isOKXEnvironment(win) && !provider?.tronWeb) {
-    return null;
-  }
-
-  return tronWeb;
+  return provider?.tronWeb || win.tronWeb || null;
 }
 
 export function detectTronLink() {
@@ -90,19 +54,7 @@ export function detectTronLink() {
   if (!win) return false;
 
   if (isOKXEnvironment(win)) {
-    const provider = getTronLinkProvider();
-    const tronWeb = provider?.tronWeb || null;
-    const address = readAddressFromTronWeb(tronWeb);
-
-    if (!provider || !tronWeb) {
-      return false;
-    }
-
-    return {
-      installed: true,
-      ready: Boolean(address),
-      address: address || null
-    };
+    return false;
   }
 
   const provider = getTronLinkProvider();
