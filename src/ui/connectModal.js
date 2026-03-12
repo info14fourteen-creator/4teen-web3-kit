@@ -1,7 +1,66 @@
 import { detectWallets, connect } from '../core/walletManager.js';
 
-function walletButton(name, available) {
+const WALLET_ORDER = ['okx', 'binance', 'trust', 'tronlink'];
 
+function getUserAgent() {
+  if (typeof navigator === 'undefined') return '';
+  return navigator.userAgent || '';
+}
+
+function isOKXInAppBrowser() {
+  const ua = getUserAgent();
+  return /OKX|OKApp/i.test(ua) || !!window?.okxwallet;
+}
+
+function isBinanceInAppBrowser() {
+  const ua = getUserAgent();
+  return /Binance/i.test(ua) || !!window?.binancew3w || !!window?.BinanceChain;
+}
+
+function isTrustInAppBrowser() {
+  const ua = getUserAgent();
+  return /Trust|TrustWallet/i.test(ua) || !!window?.trustwallet || !!window?.trustWallet;
+}
+
+function resolveDetectedWallets(rawDetected = {}) {
+  const wallets = {
+    tronlink: Boolean(rawDetected.tronlink),
+    okx: Boolean(rawDetected.okx),
+    trust: Boolean(rawDetected.trust),
+    binance: Boolean(rawDetected.binance)
+  };
+
+  if (wallets.okx && isOKXInAppBrowser()) {
+    return {
+      tronlink: false,
+      okx: true,
+      trust: false,
+      binance: false
+    };
+  }
+
+  if (wallets.binance && isBinanceInAppBrowser()) {
+    return {
+      tronlink: false,
+      okx: false,
+      trust: false,
+      binance: true
+    };
+  }
+
+  if (wallets.trust && isTrustInAppBrowser()) {
+    return {
+      tronlink: false,
+      okx: false,
+      trust: true,
+      binance: false
+    };
+  }
+
+  return wallets;
+}
+
+function walletButton(name, available) {
   const icons = {
     tronlink: '🟠',
     okx: '⚫',
@@ -44,10 +103,7 @@ function walletButton(name, available) {
 }
 
 function autoConnectIfPossible(wallets) {
-
-  const available = Object.entries(wallets)
-    .filter(([name, detected]) => detected)
-    .map(([name]) => name);
+  const available = WALLET_ORDER.filter((name) => wallets[name]);
 
   if (available.length === 1) {
     return available[0];
@@ -57,7 +113,6 @@ function autoConnectIfPossible(wallets) {
 }
 
 function createModalHTML(wallets) {
-
   return `
     <div class="fw-connect-overlay">
       <div class="fw-connect-box">
@@ -67,12 +122,10 @@ function createModalHTML(wallets) {
         </div>
 
         <div class="fw-wallet-list">
-
-          ${walletButton('tronlink', wallets.tronlink)}
           ${walletButton('okx', wallets.okx)}
-          ${walletButton('trust', wallets.trust)}
           ${walletButton('binance', wallets.binance)}
-
+          ${walletButton('trust', wallets.trust)}
+          ${walletButton('tronlink', wallets.tronlink)}
         </div>
 
         <button type="button" class="fw-connect-close">
@@ -85,31 +138,28 @@ function createModalHTML(wallets) {
 }
 
 export function openConnectModal() {
-
   return new Promise(async (resolve, reject) => {
+    let settled = false;
 
-    const wallets = detectWallets();
-
+    const rawWallets = detectWallets();
+    const wallets = resolveDetectedWallets(rawWallets);
     const autoWallet = autoConnectIfPossible(wallets);
-
-    /* AUTO CONNECT (single wallet) */
 
     if (autoWallet) {
       try {
         const result = await connect(autoWallet);
+        settled = true;
         resolve(result);
         return;
       } catch (error) {
+        settled = true;
         reject(error);
         return;
       }
     }
 
-    /* CREATE MODAL */
-
     const modal = document.createElement('div');
     modal.className = 'fw-connect-modal';
-
     modal.innerHTML = createModalHTML(wallets);
 
     const overlay = modal.querySelector('.fw-connect-overlay');
@@ -119,20 +169,31 @@ export function openConnectModal() {
     let connecting = false;
 
     function cleanup() {
-
       overlay.classList.remove('visible');
 
       setTimeout(() => {
-        modal.remove();
+        if (modal.parentNode) {
+          modal.remove();
+        }
       }, 150);
+    }
 
+    function safeReject(error) {
+      if (settled) return;
+      settled = true;
+      reject(error);
+    }
+
+    function safeResolve(value) {
+      if (settled) return;
+      settled = true;
+      resolve(value);
     }
 
     function startLoading(btn) {
-
       connecting = true;
 
-      walletButtons.forEach(b => {
+      walletButtons.forEach((b) => {
         b.disabled = true;
         b.style.opacity = '0.5';
       });
@@ -144,50 +205,37 @@ export function openConnectModal() {
       `;
     }
 
-    /* CLOSE */
-
     closeBtn.onclick = () => {
       cleanup();
-      reject(new Error('Wallet selection cancelled'));
+      safeReject(new Error('Wallet selection cancelled'));
     };
 
     overlay.onclick = (e) => {
       if (e.target === overlay) {
         cleanup();
-        reject(new Error('Wallet selection cancelled'));
+        safeReject(new Error('Wallet selection cancelled'));
       }
     };
 
-    /* WALLET BUTTONS */
-
     walletButtons.forEach((btn) => {
-
       btn.onclick = async () => {
-
         if (connecting) return;
 
         const walletType = btn.dataset.wallet;
 
         try {
-
           startLoading(btn);
 
           const result = await connect(walletType);
 
           cleanup();
-
-          resolve(result);
-
+          safeResolve(result);
         } catch (error) {
-
           console.error('[FourteenWallet] connectModal error', error);
-
           cleanup();
-
-          reject(error);
+          safeReject(error);
         }
       };
-
     });
 
     document.body.appendChild(modal);
@@ -195,6 +243,5 @@ export function openConnectModal() {
     requestAnimationFrame(() => {
       overlay.classList.add('visible');
     });
-
   });
 }
