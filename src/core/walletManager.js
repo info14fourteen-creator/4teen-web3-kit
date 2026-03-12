@@ -14,32 +14,129 @@ import {
 let unsubscribeAdapterEvents = null;
 let lastRefreshPromise = null;
 let connectRequestId = 0;
+let trustRestoreWatcherStarted = false;
 
-const WALLET_MANAGER_BUILD = 'wm-registry-okx-fix-v2';
+const WALLET_MANAGER_BUILD = 'wm-trust-restore-v3';
+const TRUST_PENDING_KEY = 'fourteen:trust:pending-connect';
+
+function getWindowSafe() {
+  return typeof window !== 'undefined' ? window : null;
+}
+
+function getDocumentSafe() {
+  return typeof document !== 'undefined' ? document : null;
+}
 
 function getUserAgent() {
   if (typeof navigator === 'undefined') return '';
   return navigator.userAgent || '';
 }
 
+function getSessionStorageSafe() {
+  try {
+    if (typeof sessionStorage !== 'undefined') {
+      return sessionStorage;
+    }
+  } catch (_) {}
+  return null;
+}
+
 function isTrustInAppBrowser() {
   const ua = getUserAgent();
-  return /Trust|TrustWallet/i.test(ua) || !!window?.trustwallet || !!window?.trustWallet;
+  const win = getWindowSafe();
+
+  return /Trust|TrustWallet/i.test(ua) || !!win?.trustwallet || !!win?.trustWallet;
 }
 
 function isOKXInAppBrowser() {
   const ua = getUserAgent();
-  return /OKX|OKApp|OKEx/i.test(ua) || !!window?.okxwallet;
+  const win = getWindowSafe();
+
+  return /OKX|OKApp|OKEx/i.test(ua) || !!win?.okxwallet;
 }
 
 function isBinanceInAppBrowser() {
   const ua = getUserAgent();
-  return /Binance/i.test(ua) || !!window?.binancew3w || !!window?.BinanceChain;
+  const win = getWindowSafe();
+
+  return /Binance/i.test(ua) || !!win?.binancew3w || !!win?.BinanceChain;
 }
 
 function isTronLinkInAppBrowser() {
   const ua = getUserAgent();
   return /TronLink/i.test(ua);
+}
+
+function markPendingTrustConnect() {
+  const storage = getSessionStorageSafe();
+  if (!storage) return;
+
+  try {
+    storage.setItem(TRUST_PENDING_KEY, '1');
+  } catch (_) {}
+}
+
+function clearPendingTrustConnect() {
+  const storage = getSessionStorageSafe();
+  if (!storage) return;
+
+  try {
+    storage.removeItem(TRUST_PENDING_KEY);
+  } catch (_) {}
+}
+
+function hasPendingTrustConnect() {
+  const storage = getSessionStorageSafe();
+  if (!storage) return false;
+
+  try {
+    return storage.getItem(TRUST_PENDING_KEY) === '1';
+  } catch (_) {
+    return false;
+  }
+}
+
+function getInjectedTrustProvider() {
+  const win = getWindowSafe();
+  if (!win) return null;
+
+  return (
+    win.trustwallet?.tron ||
+    win.trustwallet?.tronLink ||
+    win.trustwallet?.web3?.tron ||
+    win.trustwallet ||
+    win.trustWallet?.tron ||
+    win.trustWallet?.tronLink ||
+    win.trustWallet?.web3?.tron ||
+    win.trustWallet ||
+    null
+  );
+}
+
+function getInjectedTrustTronWeb() {
+  const win = getWindowSafe();
+  const provider = getInjectedTrustProvider();
+
+  return (
+    provider?.tronWeb ||
+    provider?.sunWeb ||
+    provider?.web3?.tronWeb ||
+    win?.tronWeb ||
+    null
+  );
+}
+
+function getInjectedTrustAddress() {
+  const tronWeb = getInjectedTrustTronWeb();
+  const provider = getInjectedTrustProvider();
+
+  return (
+    tronWeb?.defaultAddress?.base58 ||
+    tronWeb?.defaultAddress?.address ||
+    provider?.selectedAddress ||
+    provider?.address ||
+    null
+  );
 }
 
 function clearAdapterSubscriptions() {
@@ -211,6 +308,10 @@ async function applyConnection(result, requestId) {
     return getState();
   }
 
+  if (result.walletType === 'trust') {
+    clearPendingTrustConnect();
+  }
+
   emit('connected', getState());
   return getState();
 }
@@ -249,6 +350,90 @@ function resolvePreferredInAppWallet(wallets) {
   return null;
 }
 
+async function restoreTrustConnectionIfPossible(reason = 'unknown') {
+  const state = getState();
+
+  if (state.connected) {
+    return state;
+  }
+
+  const tronWeb = getInjectedTrustTronWeb();
+  const provider = getInjectedTrustProvider();
+  const address = getInjectedTrustAddress();
+
+  if (!tronWeb || !address) {
+    return null;
+  }
+
+  const nextState = {
+    walletType: 'trust',
+    connected: true,
+    connecting: false,
+    address,
+    shortAddress: shortenAddress(address),
+    tronWeb,
+    provider,
+    balanceTRX: null,
+    isReady: true,
+    lastError: null
+  };
+
+  setState(nextState);
+  bindAdapterEvents('trust', provider);
+  await refreshBalance();
+  clearPendingTrustConnect();
+
+  emit('connected', {
+    ...getState(),
+    restoredFrom: reason
+  });
+
+  return getState();
+}
+
+function ensureTrustRestoreWatcher() {
+  if (trustRestoreWatcherStarted) return;
+  trustRestoreWatcherStarted = true;
+
+  const doc = getDocumentSafe();
+
+  const tryRestore = async (reason) => {
+    try {
+      const shouldTry =
+        hasPendingTrustConnect() ||
+        (isTrustInAppBrowser() && !!getInjectedTrustAddress());
+
+      if (!shouldTry) {
+        return;
+      }
+
+      await restoreTrustConnectionIfPossible(reason);
+    } catch (error) {
+      console.warn('[FourteenWallet] Trust restore attempt failed:', error);
+    }
+  };
+
+  let attempts = 0;
+  const maxAttempts = 40;
+  const timer = setInterval(async () => {
+    attempts += 1;
+    await tryRestore('poll');
+
+    if (getState().connected || attempts >= maxAttempts) {
+      clearInterval(timer);
+    }
+  }, 300);
+
+  if (doc) {
+    const handleVisibilityChange = async () => {
+      if (doc.visibilityState !== 'visible') return;
+      await tryRestore('visibilitychange');
+    };
+
+    doc.addEventListener('visibilitychange', handleVisibilityChange);
+  }
+}
+
 export function detectWallets() {
   let wallets = detectWalletMap();
 
@@ -264,6 +449,17 @@ export function detectWallets() {
     Object.keys(wallets).filter((key) => wallets[key]).length === 0
   ) {
     wallets.generic = true;
+  }
+
+  if (wallets.trust) {
+    ensureTrustRestoreWatcher();
+
+    const trustAddress = getInjectedTrustAddress();
+    if (trustAddress && !getState().connected) {
+      restoreTrustConnectionIfPossible('detectWallets').catch((error) => {
+        console.warn('[FourteenWallet] detect-time Trust restore failed:', error);
+      });
+    }
   }
 
   try {
@@ -324,6 +520,11 @@ export async function connect(walletType) {
 
   clearAdapterSubscriptions();
 
+  if (resolvedWalletType === 'trust') {
+    markPendingTrustConnect();
+    ensureTrustRestoreWatcher();
+  }
+
   setState({
     connecting: true,
     lastError: null
@@ -362,6 +563,15 @@ export async function connect(walletType) {
 }
 
 export async function autoConnect() {
+  ensureTrustRestoreWatcher();
+
+  if (hasPendingTrustConnect()) {
+    const restored = await restoreTrustConnectionIfPossible('autoConnect-pending-trust');
+    if (restored?.connected) {
+      return restored;
+    }
+  }
+
   const walletType = await autoDetectWallet();
 
   if (!walletType) {
@@ -379,6 +589,7 @@ export async function autoConnect() {
 export function disconnect() {
   clearAdapterSubscriptions();
   lastRefreshPromise = null;
+  clearPendingTrustConnect();
   resetState();
   emit('disconnected', { connected: false });
 }
