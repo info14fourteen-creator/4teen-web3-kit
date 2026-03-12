@@ -179,7 +179,6 @@ export function mountDirectBuy({
   let isRefreshing = false;
   let isDestroyed = false;
   let refreshSeq = 0;
-  let controllerConnection = null;
 
   function isAlive() {
     return !isDestroyed && document.body.contains(root);
@@ -448,16 +447,17 @@ export function mountDirectBuy({
   }
 
   async function connectWallet() {
-    if (isSubmitting) return;
+  if (isSubmitting) return;
 
-    setStatus('Connecting wallet...');
+  setStatus('Connecting wallet...');
 
-    controllerConnection = await connectViaController();
+  await wallet.connect();
 
-    await getReadyTronWeb(12000);
-    await refreshUI({ silent: true });
-    setStatus('');
-  }
+  await getReadyTronWeb(12000);
+  await refreshUI({ silent: true });
+
+  setStatus('');
+}
 
   async function buy() {
     if (isSubmitting) return;
