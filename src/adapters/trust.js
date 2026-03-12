@@ -17,6 +17,7 @@ function isTrustEnvironment(win = getWindowSafe()) {
   return Boolean(
     win.trustwallet ||
     win.trustWallet ||
+    win.ethereum?.isTrust ||
     /Trust|TrustWallet/i.test(getUserAgent())
   );
 }
@@ -96,7 +97,9 @@ export function detectTrust() {
   return {
     installed: Boolean(provider || tronWeb || isTrustEnvironment(win)),
     ready: Boolean(address),
-    address: address || null
+    address: address || null,
+    provider: provider || null,
+    tronWeb: tronWeb || null
   };
 }
 
@@ -108,7 +111,8 @@ async function requestAccounts(provider) {
   if (typeof provider.request === 'function') {
     try {
       const result = await provider.request({ method: 'tron_requestAccounts' });
-      return normalizeAddress(result);
+      const address = normalizeAddress(result);
+      if (address) return address;
     } catch (error) {
       console.warn('[FourteenWallet][Trust] tron_requestAccounts failed:', error);
     }
@@ -117,7 +121,8 @@ async function requestAccounts(provider) {
   if (typeof provider.connect === 'function') {
     try {
       const result = await provider.connect();
-      return normalizeAddress(result);
+      const address = normalizeAddress(result);
+      if (address) return address;
     } catch (error) {
       console.warn('[FourteenWallet][Trust] provider.connect() failed:', error);
     }
@@ -160,6 +165,32 @@ async function waitForTrustReady(options = {}) {
     tronWeb: getTrustTronWeb(),
     address: null
   };
+}
+
+function patchTrustTronWeb(tronWeb, address) {
+  if (!tronWeb || !address) return tronWeb;
+
+  try {
+    if (typeof tronWeb.setAddress === 'function') {
+      tronWeb.setAddress(address);
+    } else {
+      const hex =
+        tronWeb.address?.toHex?.(address) ||
+        tronWeb.defaultAddress?.hex ||
+        '';
+
+      tronWeb.defaultAddress = {
+        base58: address,
+        hex
+      };
+    }
+
+    tronWeb.ready = true;
+  } catch (error) {
+    console.warn('[FourteenWallet][Trust] failed to patch tronWeb:', error);
+  }
+
+  return tronWeb;
 }
 
 export async function connectTrust() {
@@ -205,25 +236,7 @@ export async function connectTrust() {
     throw new Error('Trust Wallet did not provide a ready TRON address');
   }
 
-  try {
-    if (typeof tronWeb.setAddress === 'function') {
-      tronWeb.setAddress(address);
-    } else if (!tronWeb.defaultAddress?.base58) {
-      const hex =
-        tronWeb.address?.toHex?.(address) ||
-        tronWeb.defaultAddress?.hex ||
-        '';
-
-      tronWeb.defaultAddress = {
-        base58: address,
-        hex
-      };
-    }
-
-    tronWeb.ready = true;
-  } catch (error) {
-    console.warn('[FourteenWallet][Trust] failed to patch tronWeb:', error);
-  }
+  patchTrustTronWeb(tronWeb, address);
 
   return {
     walletType: 'trust',
@@ -259,6 +272,8 @@ export function subscribeTrustEvents({
     const fallback =
       ready.address ||
       readAddressFromTronWeb(ready.tronWeb) ||
+      normalizeAddress(ready.provider?.selectedAddress) ||
+      normalizeAddress(ready.provider?.address) ||
       null;
 
     await onAccountsChanged(fallback);
@@ -283,6 +298,40 @@ export function subscribeTrustEvents({
       provider.removeListener?.('accountsChanged', handleAccountsChanged);
       provider.removeListener?.('disconnect', handleDisconnect);
     });
+  }
+
+  const win = getWindowSafe();
+
+  if (win) {
+    const handleVisibilityChange = async () => {
+      if (typeof document === 'undefined') return;
+      if (document.visibilityState !== 'visible') return;
+
+      const ready = await waitForTrustReady({
+        timeoutMs: 1500,
+        delayMs: 150,
+        requireAddress: false
+      });
+
+      const fallback =
+        ready.address ||
+        readAddressFromTronWeb(ready.tronWeb) ||
+        normalizeAddress(ready.provider?.selectedAddress) ||
+        normalizeAddress(ready.provider?.address) ||
+        null;
+
+      if (fallback && typeof onAccountsChanged === 'function') {
+        await onAccountsChanged(fallback);
+      }
+    };
+
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', handleVisibilityChange);
+
+      cleanups.push(() => {
+        document.removeEventListener('visibilitychange', handleVisibilityChange);
+      });
+    }
   }
 
   return () => {
