@@ -6,79 +6,17 @@ function getWindowSafe() {
   return typeof window !== 'undefined' ? window : null;
 }
 
-function getUserAgent() {
-  if (typeof navigator === 'undefined') return '';
-  return navigator.userAgent || '';
+function readAddressFromTronWeb(tronWeb) {
+  return tronWeb?.defaultAddress?.base58 || null;
 }
 
-function isTrustEnvironment(win = getWindowSafe()) {
+function isTrustEnvironment(win) {
   if (!win) return false;
 
   return Boolean(
     win.trustwallet ||
     win.trustWallet ||
-    win.ethereum?.isTrust ||
-    /Trust|TrustWallet/i.test(getUserAgent())
-  );
-}
-
-function normalizeAddress(value) {
-  if (!value) return null;
-
-  if (typeof value === 'string') {
-    return value;
-  }
-
-  if (typeof value?.address === 'string') {
-    return value.address;
-  }
-
-  if (typeof value?.base58 === 'string') {
-    return value.base58;
-  }
-
-  if (Array.isArray(value) && typeof value[0] === 'string') {
-    return value[0];
-  }
-
-  return null;
-}
-
-function readAddressFromTronWeb(tronWeb) {
-  return (
-    tronWeb?.defaultAddress?.base58 ||
-    tronWeb?.defaultAddress?.address ||
-    null
-  );
-}
-
-export function getTrustProvider() {
-  const win = getWindowSafe();
-  if (!win) return null;
-
-  return (
-    win.trustwallet?.tron ||
-    win.trustwallet?.tronLink ||
-    win.trustwallet?.web3?.tron ||
-    win.trustwallet ||
-    win.trustWallet?.tron ||
-    win.trustWallet?.tronLink ||
-    win.trustWallet?.web3?.tron ||
-    win.trustWallet ||
-    null
-  );
-}
-
-export function getTrustTronWeb() {
-  const win = getWindowSafe();
-  const provider = getTrustProvider();
-
-  return (
-    provider?.tronWeb ||
-    provider?.sunWeb ||
-    provider?.web3?.tronWeb ||
-    win?.tronWeb ||
-    null
+    win.TronWebProto
   );
 }
 
@@ -86,261 +24,82 @@ export function detectTrust() {
   const win = getWindowSafe();
   if (!win) return false;
 
-  const provider = getTrustProvider();
-  const tronWeb = getTrustTronWeb();
-  const address = readAddressFromTronWeb(tronWeb);
-
-  if (!provider && !tronWeb && !isTrustEnvironment(win)) {
-    return false;
-  }
-
-  return {
-    installed: Boolean(provider || tronWeb || isTrustEnvironment(win)),
-    ready: Boolean(address),
-    address: address || null,
-    provider: provider || null,
-    tronWeb: tronWeb || null
-  };
+  return isTrustEnvironment(win);
 }
 
-async function requestAccounts(provider) {
-  if (!provider) {
-    return null;
-  }
+async function waitForTrustReady(timeout = 12000) {
+  const start = Date.now();
 
-  if (typeof provider.request === 'function') {
-    try {
-      const result = await provider.request({ method: 'tron_requestAccounts' });
-      const address = normalizeAddress(result);
-      if (address) return address;
-    } catch (error) {
-      console.warn('[FourteenWallet][Trust] tron_requestAccounts failed:', error);
-    }
-  }
+  while (Date.now() - start < timeout) {
 
-  if (typeof provider.connect === 'function') {
-    try {
-      const result = await provider.connect();
-      const address = normalizeAddress(result);
-      if (address) return address;
-    } catch (error) {
-      console.warn('[FourteenWallet][Trust] provider.connect() failed:', error);
-    }
-  }
+    const tronWeb = window.tronWeb;
+    const address = readAddressFromTronWeb(tronWeb);
 
-  return null;
-}
-
-async function waitForTrustReady(options = {}) {
-  const {
-    timeoutMs = 12000,
-    delayMs = 200,
-    requireAddress = true
-  } = options;
-
-  const startedAt = Date.now();
-
-  while (Date.now() - startedAt < timeoutMs) {
-    const provider = getTrustProvider();
-    const tronWeb = getTrustTronWeb();
-    const address =
-      readAddressFromTronWeb(tronWeb) ||
-      normalizeAddress(provider?.selectedAddress) ||
-      normalizeAddress(provider?.address) ||
-      null;
-
-    if (tronWeb && (!requireAddress || address)) {
+    if (tronWeb && address) {
       return {
-        provider,
         tronWeb,
         address
       };
     }
 
-    await sleep(delayMs);
+    await sleep(250);
   }
 
   return {
-    provider: getTrustProvider(),
-    tronWeb: getTrustTronWeb(),
+    tronWeb: null,
     address: null
   };
 }
 
-function patchTrustTronWeb(tronWeb, address) {
-  if (!tronWeb || !address) return tronWeb;
-
-  try {
-    if (typeof tronWeb.setAddress === 'function') {
-      tronWeb.setAddress(address);
-    } else {
-      const hex =
-        tronWeb.address?.toHex?.(address) ||
-        tronWeb.defaultAddress?.hex ||
-        '';
-
-      tronWeb.defaultAddress = {
-        base58: address,
-        hex
-      };
-    }
-
-    tronWeb.ready = true;
-  } catch (error) {
-    console.warn('[FourteenWallet][Trust] failed to patch tronWeb:', error);
-  }
-
-  return tronWeb;
-}
-
 export async function connectTrust() {
-  const detected = detectTrust();
 
-  if (!detected) {
-    throw new Error('Trust Wallet not found');
+  if (!detectTrust()) {
+    throw new Error("Trust Wallet not detected");
   }
 
-  const provider = getTrustProvider();
-  const requestedAddress = await requestAccounts(provider);
+  let tronWeb = window.tronWeb;
+  let address = readAddressFromTronWeb(tronWeb);
 
-  let ready = await waitForTrustReady({
-    timeoutMs: 12000,
-    delayMs: 200,
-    requireAddress: true
-  });
+  if (!tronWeb || !address) {
 
-  if (!ready.tronWeb || !ready.address) {
-    await sleep(500);
+    const ready = await waitForTrustReady();
 
-    ready = await waitForTrustReady({
-      timeoutMs: 8000,
-      delayMs: 250,
-      requireAddress: false
-    });
+    tronWeb = ready.tronWeb;
+    address = ready.address;
   }
-
-  const tronWeb = ready.tronWeb || getTrustTronWeb();
-  const address =
-    ready.address ||
-    requestedAddress ||
-    readAddressFromTronWeb(tronWeb) ||
-    normalizeAddress(provider?.selectedAddress) ||
-    normalizeAddress(provider?.address) ||
-    null;
 
   if (!tronWeb) {
-    throw new Error('Trust Wallet tronWeb is not available');
+    throw new Error("Trust Wallet tronWeb is not available");
   }
 
   if (!address) {
-    throw new Error('Trust Wallet did not provide a ready TRON address');
+    throw new Error("Trust Wallet did not provide a TRON address");
   }
 
-  patchTrustTronWeb(tronWeb, address);
-
   return {
-    walletType: 'trust',
+    walletType: "trust",
     address,
     tronWeb,
-    provider
+    provider: tronWeb
   };
 }
 
 export function subscribeTrustEvents({
-  onAccountsChanged,
-  onDisconnect
+  onAccountsChanged
 } = {}) {
-  const provider = getTrustProvider();
-  const cleanups = [];
 
-  const emitAccountChange = async (nextAddress) => {
-    if (typeof onAccountsChanged !== 'function') {
-      return;
+  const handler = async () => {
+
+    const addr = window.tronWeb?.defaultAddress?.base58;
+
+    if (addr && typeof onAccountsChanged === "function") {
+      await onAccountsChanged(addr);
     }
-
-    if (nextAddress) {
-      await onAccountsChanged(nextAddress);
-      return;
-    }
-
-    const ready = await waitForTrustReady({
-      timeoutMs: 2500,
-      delayMs: 150,
-      requireAddress: false
-    });
-
-    const fallback =
-      ready.address ||
-      readAddressFromTronWeb(ready.tronWeb) ||
-      normalizeAddress(ready.provider?.selectedAddress) ||
-      normalizeAddress(ready.provider?.address) ||
-      null;
-
-    await onAccountsChanged(fallback);
   };
 
-  if (provider?.on) {
-    const handleAccountsChanged = async (accounts) => {
-      const nextAddress = normalizeAddress(accounts);
-      await emitAccountChange(nextAddress);
-    };
-
-    const handleDisconnect = async () => {
-      if (typeof onDisconnect === 'function') {
-        await onDisconnect();
-      }
-    };
-
-    provider.on('accountsChanged', handleAccountsChanged);
-    provider.on?.('disconnect', handleDisconnect);
-
-    cleanups.push(() => {
-      provider.removeListener?.('accountsChanged', handleAccountsChanged);
-      provider.removeListener?.('disconnect', handleDisconnect);
-    });
-  }
-
-  const win = getWindowSafe();
-
-  if (win) {
-    const handleVisibilityChange = async () => {
-      if (typeof document === 'undefined') return;
-      if (document.visibilityState !== 'visible') return;
-
-      const ready = await waitForTrustReady({
-        timeoutMs: 1500,
-        delayMs: 150,
-        requireAddress: false
-      });
-
-      const fallback =
-        ready.address ||
-        readAddressFromTronWeb(ready.tronWeb) ||
-        normalizeAddress(ready.provider?.selectedAddress) ||
-        normalizeAddress(ready.provider?.address) ||
-        null;
-
-      if (fallback && typeof onAccountsChanged === 'function') {
-        await onAccountsChanged(fallback);
-      }
-    };
-
-    if (typeof document !== 'undefined') {
-      document.addEventListener('visibilitychange', handleVisibilityChange);
-
-      cleanups.push(() => {
-        document.removeEventListener('visibilitychange', handleVisibilityChange);
-      });
-    }
-  }
+  window.addEventListener("focus", handler);
 
   return () => {
-    for (const cleanup of cleanups) {
-      try {
-        cleanup();
-      } catch (error) {
-        console.error('[FourteenWallet] Failed to cleanup Trust listeners', error);
-      }
-    }
+    window.removeEventListener("focus", handler);
   };
 }
