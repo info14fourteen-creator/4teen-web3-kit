@@ -11,7 +11,7 @@ function isOKXInAppBrowser() {
   const win = getWindowSafe();
   const ua = getUserAgent();
 
-  return !!(
+  return Boolean(
     win?.okxwallet ||
     /OKX|OKApp/i.test(ua)
   );
@@ -21,7 +21,7 @@ function isBinanceInAppBrowser() {
   const win = getWindowSafe();
   const ua = getUserAgent();
 
-  return !!(
+  return Boolean(
     win?.binancew3w ||
     win?.BinanceChain ||
     /Binance/i.test(ua)
@@ -30,12 +30,10 @@ function isBinanceInAppBrowser() {
 
 function isTrustInAppBrowser() {
   const win = getWindowSafe();
-  const ua = getUserAgent();
 
-  return !!(
+  return Boolean(
     win?.trustwallet ||
-    win?.trustWallet ||
-    /Trust|TrustWallet/i.test(ua)
+    win?.trustWallet
   );
 }
 
