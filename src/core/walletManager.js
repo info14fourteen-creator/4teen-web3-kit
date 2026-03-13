@@ -21,7 +21,7 @@ let lastRefreshPromise = null;
 let connectRequestId = 0;
 let trustRestoreWatcherStarted = false;
 
-const WALLET_MANAGER_BUILD = 'wm-trust-mobile-flow-v6';
+const WALLET_MANAGER_BUILD = 'wm-trust-mobile-flow-v7';
 const TRUST_PENDING_KEY = 'fourteen:trust:pending-connect';
 
 function getWindowSafe() {
@@ -35,6 +35,18 @@ function getDocumentSafe() {
 function getUserAgent() {
   if (typeof navigator === 'undefined') return '';
   return navigator.userAgent || '';
+}
+
+function isIOS() {
+  return /iPhone|iPad|iPod/i.test(getUserAgent());
+}
+
+function isAndroid() {
+  return /Android/i.test(getUserAgent());
+}
+
+function isMobileDevice() {
+  return isIOS() || isAndroid();
 }
 
 function getSessionStorageSafe() {
@@ -52,9 +64,12 @@ function isTrustInAppBrowser() {
   const win = getWindowSafe();
 
   return Boolean(
-    win?.trustwallet ||
-    win?.trustWallet ||
-    /Trust|TrustWallet/i.test(ua)
+    isMobileDevice() &&
+    (
+      win?.trustwallet ||
+      win?.trustWallet ||
+      /Trust|TrustWallet/i.test(ua)
+    )
   );
 }
 
@@ -62,14 +77,21 @@ function isOKXInAppBrowser() {
   const ua = getUserAgent();
   const win = getWindowSafe();
 
-  return /OKX|OKApp|OKEx/i.test(ua) || !!win?.okxwallet;
+  return Boolean(
+    /OKX|OKApp|OKEx/i.test(ua) ||
+    !!win?.okxwallet
+  );
 }
 
 function isBinanceInAppBrowser() {
   const ua = getUserAgent();
   const win = getWindowSafe();
 
-  return /Binance/i.test(ua) || !!win?.binancew3w || !!win?.BinanceChain;
+  return Boolean(
+    /Binance/i.test(ua) ||
+    !!win?.binancew3w ||
+    !!win?.BinanceChain
+  );
 }
 
 function isTronLinkInAppBrowser() {
