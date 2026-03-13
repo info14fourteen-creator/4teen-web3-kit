@@ -530,7 +530,7 @@ function createWalletModal(options, resolve, reject) {
         debugLog('manual connect start:', walletType);
 
         const wallet = getWalletApi();
-        const result = await wallet.connect(walletType);
+        let connectType = walletType;  const trustRootsPresent = Boolean(window?.trustwallet || window?.trustWallet); const trustHasInjectedTron = Boolean(   window?.trustwallet?.tron?.tronWeb ||   window?.trustwallet?.tronLink?.tronWeb ||   window?.trustwallet?.web3?.tron?.tronWeb ||   window?.trustWallet?.tron?.tronWeb ||   window?.trustWallet?.tronLink?.tronWeb ||   window?.trustWallet?.web3?.tron?.tronWeb );  if (walletType === 'trust' && trustRootsPresent && !trustHasInjectedTron) {   connectType = 'trust_mobile'; }  const result = await wallet.connect(connectType);
 
         if (result?.mode === 'redirect' || result?.pending === true) {
           resetPendingModalState();
