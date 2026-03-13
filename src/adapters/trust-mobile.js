@@ -46,7 +46,12 @@ function isTrustRoot(root) {
   );
 }
 
-function getEmbeddedTrustProvider(win = getWindowSafe()) {
+function isTrustBrowserPresent(win = getWindowSafe()) {
+  const roots = getTrustRoots(win);
+  return roots.some(isTrustRoot);
+}
+
+function getInjectedTrustTronWeb(win = getWindowSafe()) {
   const roots = getTrustRoots(win);
 
   for (const root of roots) {
@@ -54,47 +59,43 @@ function getEmbeddedTrustProvider(win = getWindowSafe()) {
       continue;
     }
 
-    const candidates = [
-      root.tron,
-      root.tronLink,
-      root.web3?.tron,
-      root
-    ].filter(Boolean);
+    const tronWeb =
+      root?.tron?.tronWeb ||
+      root?.tron?.sunWeb ||
+      root?.tronLink?.tronWeb ||
+      root?.tronLink?.sunWeb ||
+      root?.web3?.tron?.tronWeb ||
+      root?.web3?.tron?.sunWeb ||
+      root?.tronWeb ||
+      root?.sunWeb ||
+      root?.web3?.tronWeb ||
+      null;
 
-    for (const candidate of candidates) {
-      const hasTronShape = Boolean(
-        candidate?.tronWeb ||
-        candidate?.sunWeb ||
-        candidate?.web3?.tronWeb ||
-        typeof candidate?.request === 'function' ||
-        typeof candidate?.connect === 'function' ||
-        typeof candidate?.on === 'function'
-      );
-
-      if (hasTronShape) {
-        return candidate;
-      }
+    if (tronWeb) {
+      return tronWeb;
     }
   }
 
   return null;
 }
 
-function hasInjectedTronProvider(win = getWindowSafe()) {
-  const provider = getEmbeddedTrustProvider(win);
+function getInjectedTrustAddress(win = getWindowSafe()) {
+  const tronWeb = getInjectedTrustTronWeb(win);
+  if (!tronWeb) return null;
 
-  return Boolean(
-    provider?.tronWeb?.defaultAddress?.base58 ||
-    provider?.tronWeb?.defaultAddress?.address ||
-    provider?.sunWeb?.defaultAddress?.base58 ||
-    provider?.sunWeb?.defaultAddress?.address ||
-    provider?.web3?.tronWeb?.defaultAddress?.base58 ||
-    provider?.web3?.tronWeb?.defaultAddress?.address
+  return (
+    tronWeb?.defaultAddress?.base58 ||
+    tronWeb?.defaultAddress?.address ||
+    null
   );
 }
 
+function hasInjectedTronProvider(win = getWindowSafe()) {
+  return Boolean(getInjectedTrustAddress(win));
+}
+
 function isEmbeddedTrustBrowser(win = getWindowSafe()) {
-  return Boolean(getEmbeddedTrustProvider(win));
+  return isTrustBrowserPresent(win);
 }
 
 function getSessionStorageSafe() {
