@@ -2,53 +2,50 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function getWindowSafe() {
-  return typeof window !== 'undefined' ? window : null;
+function createTrustTronWeb() {
+
+  if (!window.TronWebProto) return null;
+
+  try {
+
+    const tronWeb = new window.TronWebProto({
+      fullHost: "https://api.trongrid.io"
+    });
+
+    return tronWeb;
+
+  } catch {
+    return null;
+  }
 }
 
-function readAddressFromTronWeb(tronWeb) {
+function readAddress(tronWeb) {
   return tronWeb?.defaultAddress?.base58 || null;
 }
 
-function isTrustEnvironment(win) {
-  if (!win) return false;
+export function detectTrust() {
 
   return Boolean(
-    win.trustwallet ||
-    win.trustWallet ||
-    win.TronWebProto
+    window.trustwallet ||
+    window.trustWallet ||
+    window.TronWebProto
   );
 }
 
-export function detectTrust() {
-  const win = getWindowSafe();
-  if (!win) return false;
+async function waitForAddress(tronWeb, timeout = 8000) {
 
-  return isTrustEnvironment(win);
-}
-
-async function waitForTrustReady(timeout = 12000) {
   const start = Date.now();
 
   while (Date.now() - start < timeout) {
 
-    const tronWeb = window.tronWeb;
-    const address = readAddressFromTronWeb(tronWeb);
+    const addr = readAddress(tronWeb);
 
-    if (tronWeb && address) {
-      return {
-        tronWeb,
-        address
-      };
-    }
+    if (addr) return addr;
 
     await sleep(250);
   }
 
-  return {
-    tronWeb: null,
-    address: null
-  };
+  return null;
 }
 
 export async function connectTrust() {
@@ -58,19 +55,16 @@ export async function connectTrust() {
   }
 
   let tronWeb = window.tronWeb;
-  let address = readAddressFromTronWeb(tronWeb);
 
-  if (!tronWeb || !address) {
-
-    const ready = await waitForTrustReady();
-
-    tronWeb = ready.tronWeb;
-    address = ready.address;
+  if (!tronWeb && window.TronWebProto) {
+    tronWeb = createTrustTronWeb();
   }
 
   if (!tronWeb) {
     throw new Error("Trust Wallet tronWeb is not available");
   }
+
+  const address = await waitForAddress(tronWeb);
 
   if (!address) {
     throw new Error("Trust Wallet did not provide a TRON address");
@@ -84,16 +78,14 @@ export async function connectTrust() {
   };
 }
 
-export function subscribeTrustEvents({
-  onAccountsChanged
-} = {}) {
+export function subscribeTrustEvents({ onAccountsChanged } = {}) {
 
-  const handler = async () => {
+  const handler = () => {
 
     const addr = window.tronWeb?.defaultAddress?.base58;
 
-    if (addr && typeof onAccountsChanged === "function") {
-      await onAccountsChanged(addr);
+    if (addr && onAccountsChanged) {
+      onAccountsChanged(addr);
     }
   };
 
