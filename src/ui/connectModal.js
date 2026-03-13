@@ -157,6 +157,22 @@ function removeActionSheet() {
   activeActionSheet = null;
 }
 
+function isModalAlive() {
+  return !!(
+    activeModal &&
+    typeof document !== 'undefined' &&
+    document.body &&
+    document.body.contains(activeModal)
+  );
+}
+
+function resetPendingModalState() {
+  pendingPromise = null;
+  isConnecting = false;
+  removeWalletModal();
+  removeActionSheet();
+}
+
 function normalizeConnectResult(result, walletType) {
   const wallet = getWalletApi();
   const state =
@@ -380,9 +396,8 @@ function openWalletActionSheet(walletType) {
 }
 
 function createWalletModal(options, resolve, reject) {
-  removeWalletModal();
+  resetPendingModalState();
 
-  const wallet = getWalletApi();
   const walletButtons = [];
   const normalizedOptions = Array.isArray(options) ? options : [];
   const availableSet = new Set(normalizedOptions);
@@ -470,10 +485,7 @@ function createWalletModal(options, resolve, reject) {
   errorBox.style.lineHeight = '1.45';
 
   function closeModalWithError(message) {
-    removeWalletModal();
-    removeActionSheet();
-    pendingPromise = null;
-    isConnecting = false;
+    resetPendingModalState();
     reject(new Error(message));
   }
 
@@ -517,11 +529,11 @@ function createWalletModal(options, resolve, reject) {
       try {
         debugLog('manual connect start:', walletType);
 
+        const wallet = getWalletApi();
         const result = await wallet.connect(walletType);
 
         if (result?.mode === 'redirect' || result?.pending === true) {
-          removeWalletModal();
-          isConnecting = false;
+          resetPendingModalState();
           resolve(result);
           return;
         }
@@ -529,9 +541,7 @@ function createWalletModal(options, resolve, reject) {
         const connection = normalizeConnectResult(result, walletType);
 
         activeConnection = connection;
-        removeWalletModal();
-        pendingPromise = null;
-        isConnecting = false;
+        resetPendingModalState();
 
         debugLog('manual connect success:', walletType);
         resolve(connection);
@@ -617,8 +627,13 @@ export async function openConnectModal() {
     return existing;
   }
 
-  if (pendingPromise) {
+  if (pendingPromise && isModalAlive()) {
     return pendingPromise;
+  }
+
+  if (pendingPromise && !isModalAlive()) {
+    debugLog('stale pending modal detected, resetting state');
+    resetPendingModalState();
   }
 
   pendingPromise = new Promise((resolve, reject) => {
@@ -645,12 +660,9 @@ export function getWallet() {
 
 export function resetWalletConnection() {
   activeConnection = null;
-  pendingPromise = null;
-  isConnecting = false;
-  removeWalletModal();
-  removeActionSheet();
+  resetPendingModalState();
 }
 
 export function isWalletModalOpen() {
-  return Boolean(activeModal);
+  return isModalAlive();
 }
