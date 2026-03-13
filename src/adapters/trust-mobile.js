@@ -48,6 +48,17 @@ function hasInjectedTronProvider(win = getWindowSafe()) {
   );
 }
 
+function isEmbeddedTrustBrowser(win = getWindowSafe()) {
+  if (!win) return false;
+
+  return Boolean(
+    win.trustwallet ||
+    win.trustWallet ||
+    win.trustwalletTon ||
+    win.TronWebProto
+  );
+}
+
 function getSessionStorageSafe() {
   try {
     if (typeof sessionStorage !== 'undefined') {
@@ -118,7 +129,7 @@ export function detectTrustMobile() {
   return {
     installed: true,
     mobile: true,
-    inWalletBrowser: true,
+    inWalletBrowser: isEmbeddedTrustBrowser(win),
     hasInjectedTronProvider: hasInjectedTronProvider(win),
     pending: hasTrustMobilePending()
   };
@@ -170,6 +181,35 @@ export async function connectTrustMobile(options = {}) {
   const currentUrl = options.currentUrl || getCurrentPageUrl();
   const urls = getTrustMobileOpenUrls(currentUrl);
 
+  if (detected.hasInjectedTronProvider) {
+    clearTrustMobilePending();
+
+    return {
+      walletType: 'trust_mobile',
+      mode: 'ready-injected-provider',
+      pending: false,
+      mobile: true,
+      inWalletBrowser: detected.inWalletBrowser,
+      hasInjectedTronProvider: true,
+      currentUrl
+    };
+  }
+
+  if (detected.inWalletBrowser) {
+    clearTrustMobilePending();
+
+    return {
+      walletType: 'trust_mobile',
+      mode: 'embedded-no-tron-provider',
+      pending: false,
+      mobile: true,
+      inWalletBrowser: true,
+      hasInjectedTronProvider: false,
+      currentUrl,
+      message: 'Trust Wallet browser is open, but a TRON provider is not exposed in this environment.'
+    };
+  }
+
   markTrustMobilePending(currentUrl);
 
   const result = {
@@ -177,8 +217,8 @@ export async function connectTrustMobile(options = {}) {
     mode: 'redirect',
     pending: true,
     mobile: true,
-    inWalletBrowser: true,
-    hasInjectedTronProvider: detected.hasInjectedTronProvider,
+    inWalletBrowser: false,
+    hasInjectedTronProvider: false,
     currentUrl,
     openUrl: urls.universal,
     fallbackUrl: urls.scheme
