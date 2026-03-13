@@ -2,6 +2,10 @@ function getWindowSafe() {
   return typeof window !== 'undefined' ? window : null;
 }
 
+function getDocumentSafe() {
+  return typeof document !== 'undefined' ? document : null;
+}
+
 function getNavigatorSafe() {
   return typeof navigator !== 'undefined' ? navigator : null;
 }
@@ -27,6 +31,19 @@ export function getCurrentPageUrl() {
   return win?.location?.href || '';
 }
 
+function normalizeTargetUrl(targetUrl = getCurrentPageUrl()) {
+  const raw = String(targetUrl || '').trim();
+  if (!raw) {
+    return getCurrentPageUrl();
+  }
+
+  try {
+    return new URL(raw, getCurrentPageUrl()).toString();
+  } catch (_) {
+    return getCurrentPageUrl();
+  }
+}
+
 const INSTALL_LINKS = {
   tronlink: 'https://www.tronlink.org/',
   okx: 'https://www.okx.com/web3',
@@ -39,70 +56,99 @@ export function getWalletInstallUrl(walletType) {
 }
 
 export function getWalletDeepLinks(walletType, targetUrl = getCurrentPageUrl()) {
-  const safeUrl = encodeURIComponent(targetUrl || '');
+  const normalizedUrl = normalizeTargetUrl(targetUrl);
+  const safeUrl = encodeURIComponent(normalizedUrl);
 
   if (walletType === 'trust') {
     return {
       primary: `https://link.trustwallet.com/open_url?url=${safeUrl}`,
-      fallback: `trust://open_url?url=${safeUrl}`
+      secondary: `trust://open_url?url=${safeUrl}`,
+      install: getWalletInstallUrl(walletType)
     };
   }
 
   if (walletType === 'okx') {
     return {
       primary: `okx://wallet/dapp/url?dappUrl=${safeUrl}`,
-      fallback: `https://www.okx.com/download`
+      secondary: '',
+      install: getWalletInstallUrl(walletType)
     };
   }
 
   if (walletType === 'tronlink') {
     return {
       primary: `tronlink://open_url?url=${safeUrl}`,
-      fallback: 'https://www.tronlink.org/'
+      secondary: '',
+      install: getWalletInstallUrl(walletType)
     };
   }
 
   if (walletType === 'binance') {
     return {
       primary: `bnc://app.binance.com/mp/app?applink=openPage%3Furl%3D${safeUrl}`,
-      fallback: 'https://www.binance.com/en/web3wallet'
+      secondary: '',
+      install: getWalletInstallUrl(walletType)
     };
   }
 
   return {
     primary: '',
-    fallback: getWalletInstallUrl(walletType)
+    secondary: '',
+    install: getWalletInstallUrl(walletType)
   };
+}
+
+function isPageStillVisible() {
+  const doc = getDocumentSafe();
+  if (!doc) return true;
+  return doc.visibilityState === 'visible';
+}
+
+function navigateSameTab(url) {
+  const win = getWindowSafe();
+  if (!win || !url) return false;
+
+  try {
+    win.location.href = url;
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
+function openNewTab(url) {
+  const win = getWindowSafe();
+  if (!win || !url) return false;
+
+  try {
+    const opened = win.open(url, '_blank', 'noopener,noreferrer');
+    return !!opened;
+  } catch (_) {
+    return false;
+  }
 }
 
 export function openInstallPage(walletType) {
   const url = getWalletInstallUrl(walletType);
   if (!url) return false;
 
-  const win = getWindowSafe();
-  if (!win) return false;
-
-  try {
-    win.open(url, '_blank', 'noopener,noreferrer');
-    return true;
-  } catch (_) {
-    try {
-      win.location.href = url;
-      return true;
-    } catch {
-      return false;
-    }
+  if (isMobileDevice()) {
+    return navigateSameTab(url);
   }
+
+  if (openNewTab(url)) {
+    return true;
+  }
+
+  return navigateSameTab(url);
 }
 
 export function openWalletApp(walletType, options = {}) {
-  const win = getWindowSafe();
-  if (!win) return false;
-
   const {
     targetUrl = getCurrentPageUrl(),
     fallbackToInstall = true,
-    fallbackDelayMs = 1400
+    stepDelayMs = 900,
+    installDelayMs = 1800
   } = options;
 
   const links = getWalletDeepLinks(walletType, targetUrl);
@@ -114,27 +160,31 @@ export function openWalletApp(walletType, options = {}) {
     return false;
   }
 
-  try {
-    win.location.href = links.primary;
-  } catch (_) {
+  const launched = navigateSameTab(links.primary);
+
+  if (!launched) {
     if (fallbackToInstall) {
       return openInstallPage(walletType);
     }
     return false;
   }
 
-  if (fallbackToInstall && links.fallback) {
+  if (!isMobileDevice()) {
+    return true;
+  }
+
+  if (links.secondary) {
     setTimeout(() => {
-      try {
-        if (document.visibilityState === 'visible') {
-          if (/^https?:/i.test(links.fallback)) {
-            win.location.href = links.fallback;
-          } else {
-            win.location.href = links.fallback;
-          }
-        }
-      } catch (_) {}
-    }, fallbackDelayMs);
+      if (!isPageStillVisible()) return;
+      navigateSameTab(links.secondary);
+    }, stepDelayMs);
+  }
+
+  if (fallbackToInstall && links.install) {
+    setTimeout(() => {
+      if (!isPageStillVisible()) return;
+      navigateSameTab(links.install);
+    }, links.secondary ? installDelayMs : stepDelayMs);
   }
 
   return true;
