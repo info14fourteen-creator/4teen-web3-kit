@@ -1,5 +1,8 @@
+import { isMobileDevice, openInstallPage, openWalletApp } from './walletLinks.js';
+
 let activeConnection = null;
 let activeModal = null;
+let activeActionSheet = null;
 let pendingPromise = null;
 let isConnecting = false;
 
@@ -69,7 +72,8 @@ function getWalletOptions() {
         label: item.label || prettyWalletName(item.type || item.id),
         icon: item.icon || getWalletIcon(item.type || item.id)
       }))
-      .filter((item) => item.type);
+      .filter((item) => item.type)
+      .filter((item) => item.type !== 'trust_mobile');
 
     if (normalized.length) {
       return normalized;
@@ -84,12 +88,6 @@ function getWalletOptions() {
     label: prettyWalletName(type),
     icon: getWalletIcon(type)
   }));
-}
-
-function getAvailableWallets() {
-  return getWalletOptions()
-    .filter((item) => item.detected)
-    .map((item) => item.type);
 }
 
 function getManualOrder() {
@@ -149,6 +147,14 @@ function removeWalletModal() {
   }
 
   activeModal = null;
+}
+
+function removeActionSheet() {
+  if (activeActionSheet?.parentNode) {
+    activeActionSheet.parentNode.removeChild(activeActionSheet);
+  }
+
+  activeActionSheet = null;
 }
 
 function normalizeConnectResult(result, walletType) {
@@ -221,19 +227,28 @@ function enableAllWalletButtons(buttons) {
 }
 
 function buildWalletButtonHtml(walletType, available) {
+  const mobile = isMobileDevice();
+
+  let desc = 'Try manually';
+  let status = 'Manual';
+
+  if (available) {
+    desc = 'Detected in this browser';
+    status = 'Available';
+  } else if (mobile) {
+    desc = 'Open app or install wallet';
+    status = 'Mobile';
+  }
+
   return `
     <div class="fw-wallet-left">
       <div class="fw-wallet-icon">${getWalletIcon(walletType)}</div>
       <div>
         <div class="fw-wallet-name">${prettyWalletName(walletType)}</div>
-        <div class="fw-wallet-desc">
-          ${available ? 'Detected in this browser' : 'Try manually'}
-        </div>
+        <div class="fw-wallet-desc">${desc}</div>
       </div>
     </div>
-    <div class="fw-wallet-status ${available ? 'available' : 'manual'}">
-      ${available ? 'Available' : 'Manual'}
-    </div>
+    <div class="fw-wallet-status ${available ? 'available' : 'manual'}">${status}</div>
   `;
 }
 
@@ -248,6 +263,101 @@ function buildConnectingButtonHtml(walletType) {
     </div>
     <div class="fw-wallet-status manual">Waiting</div>
   `;
+}
+
+function openWalletActionSheet(walletType) {
+  removeActionSheet();
+
+  const overlay = document.createElement('div');
+  overlay.style.position = 'fixed';
+  overlay.style.inset = '0';
+  overlay.style.background = 'rgba(0,0,0,0.72)';
+  overlay.style.backdropFilter = 'blur(4px)';
+  overlay.style.webkitBackdropFilter = 'blur(4px)';
+  overlay.style.zIndex = '1000000';
+  overlay.style.display = 'flex';
+  overlay.style.alignItems = 'center';
+  overlay.style.justifyContent = 'center';
+  overlay.style.padding = '20px';
+
+  const box = document.createElement('div');
+  box.style.width = '100%';
+  box.style.maxWidth = '380px';
+  box.style.background = '#0f0f0f';
+  box.style.border = '1px solid rgba(255,255,255,0.08)';
+  box.style.borderRadius = '20px';
+  box.style.boxShadow = '0 24px 70px rgba(0,0,0,0.45)';
+  box.style.padding = '18px';
+  box.style.display = 'grid';
+  box.style.gap = '10px';
+
+  const title = document.createElement('div');
+  title.textContent = prettyWalletName(walletType);
+  title.style.color = '#fff';
+  title.style.fontSize = '18px';
+  title.style.fontWeight = '700';
+
+  const subtitle = document.createElement('div');
+  subtitle.textContent = 'Choose what to do next.';
+  subtitle.style.color = 'rgba(255,255,255,0.65)';
+  subtitle.style.fontSize = '14px';
+  subtitle.style.lineHeight = '1.45';
+
+  function makeActionButton(text, primary = false) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.textContent = text;
+    btn.style.width = '100%';
+    btn.style.padding = '13px 14px';
+    btn.style.borderRadius = '14px';
+    btn.style.border = primary
+      ? '1px solid rgba(255,255,255,0.18)'
+      : '1px solid rgba(255,255,255,0.10)';
+    btn.style.background = primary ? '#1d1d1d' : 'transparent';
+    btn.style.color = '#fff';
+    btn.style.fontSize = '14px';
+    btn.style.fontWeight = '600';
+    btn.style.cursor = 'pointer';
+    return btn;
+  }
+
+  const openBtn = makeActionButton('Open App', true);
+  const installBtn = makeActionButton('Install');
+  const cancelBtn = makeActionButton('Cancel');
+
+  function closeSheet() {
+    removeActionSheet();
+  }
+
+  openBtn.addEventListener('click', () => {
+    closeSheet();
+    openWalletApp(walletType);
+  });
+
+  installBtn.addEventListener('click', () => {
+    closeSheet();
+    openInstallPage(walletType);
+  });
+
+  cancelBtn.addEventListener('click', () => {
+    closeSheet();
+  });
+
+  overlay.addEventListener('click', (event) => {
+    if (event.target === overlay) {
+      closeSheet();
+    }
+  });
+
+  box.appendChild(title);
+  box.appendChild(subtitle);
+  box.appendChild(openBtn);
+  box.appendChild(installBtn);
+  box.appendChild(cancelBtn);
+  overlay.appendChild(box);
+
+  document.body.appendChild(overlay);
+  activeActionSheet = overlay;
 }
 
 function createWalletModal(options, resolve, reject) {
@@ -276,9 +386,7 @@ function createWalletModal(options, resolve, reject) {
 
   const subtitle = document.createElement('div');
   subtitle.className = 'fw-subtitle';
-  subtitle.textContent = normalizedOptions.length
-    ? 'Choose the wallet you want to use.'
-    : 'No wallet was detected automatically. You can still try one manually.';
+  subtitle.textContent = 'Choose the wallet you want to use.';
 
   titleWrap.appendChild(title);
   titleWrap.appendChild(subtitle);
@@ -300,6 +408,7 @@ function createWalletModal(options, resolve, reject) {
 
   function closeModalWithError(message) {
     removeWalletModal();
+    removeActionSheet();
     pendingPromise = null;
     isConnecting = false;
     reject(new Error(message));
@@ -325,6 +434,17 @@ function createWalletModal(options, resolve, reject) {
       if (isConnecting) return;
 
       clearError();
+
+      if (!available) {
+        if (isMobileDevice()) {
+          openWalletActionSheet(walletType);
+          return;
+        }
+
+        openInstallPage(walletType);
+        return;
+      }
+
       isConnecting = true;
       disableAllWalletButtons(walletButtons, btn);
 
@@ -335,6 +455,14 @@ function createWalletModal(options, resolve, reject) {
         debugLog('manual connect start:', walletType);
 
         const result = await wallet.connect(walletType);
+
+        if (result?.mode === 'redirect' || result?.pending === true) {
+          removeWalletModal();
+          isConnecting = false;
+          resolve(result);
+          return;
+        }
+
         const connection = normalizeConnectResult(result, walletType);
 
         activeConnection = connection;
@@ -368,7 +496,9 @@ function createWalletModal(options, resolve, reject) {
 
   const hint = document.createElement('div');
   hint.className = 'fw-hint';
-  hint.textContent = 'If several wallets are installed, choose the one you want to use.';
+  hint.textContent = isMobileDevice()
+    ? 'On mobile you can open the wallet app or install it.'
+    : 'If a wallet is not installed, the install page will open.';
 
   const closeBtn = document.createElement('button');
   closeBtn.type = 'button';
@@ -414,26 +544,12 @@ export async function openConnectModal() {
     return pendingPromise;
   }
 
-  const available = getAvailableWallets();
-
-  if (available.length === 1) {
-    const wallet = getWalletApi();
-
-    pendingPromise = (async () => {
-      try {
-        const result = await wallet.connect(available[0]);
-        const connection = normalizeConnectResult(result, available[0]);
-        activeConnection = connection;
-        return connection;
-      } finally {
-        pendingPromise = null;
-      }
-    })();
-
-    return pendingPromise;
-  }
-
   pendingPromise = new Promise((resolve, reject) => {
+    const available = getWalletOptions()
+      .filter((item) => item.type !== 'trust_mobile')
+      .filter((item) => FALLBACK_WALLET_ORDER.includes(item.type))
+      .map((item) => item.type);
+
     createWalletModal(available, resolve, reject);
   }).finally(() => {
     pendingPromise = null;
@@ -455,6 +571,7 @@ export function resetWalletConnection() {
   pendingPromise = null;
   isConnecting = false;
   removeWalletModal();
+  removeActionSheet();
 }
 
 export function isWalletModalOpen() {
