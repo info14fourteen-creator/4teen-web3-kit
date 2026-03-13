@@ -227,7 +227,7 @@ export function mountDirectBuy({
   async function connectWallet() {
     setStatus('Connecting wallet...');
 
-    await wallet.connect();
+await wallet.openConnectModal();
     await sleep(250);
     await ensureContract();
     await refreshBalance();
