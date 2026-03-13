@@ -530,11 +530,52 @@ function createWalletModal(options, resolve, reject) {
         debugLog('manual connect start:', walletType);
 
         const wallet = getWalletApi();
-        let connectType = walletType;  const trustRootsPresent = Boolean(window?.trustwallet || window?.trustWallet); const trustHasInjectedTron = Boolean(   window?.trustwallet?.tron?.tronWeb ||   window?.trustwallet?.tronLink?.tronWeb ||   window?.trustwallet?.web3?.tron?.tronWeb ||   window?.trustWallet?.tron?.tronWeb ||   window?.trustWallet?.tronLink?.tronWeb ||   window?.trustWallet?.web3?.tron?.tronWeb );  if (walletType === 'trust' && trustRootsPresent && !trustHasInjectedTron) {   connectType = 'trust_mobile'; }  const result = await wallet.connect(connectType);
+        let connectType = walletType;
+
+        const trustRootsPresent = Boolean(
+          window?.trustwallet ||
+          window?.trustWallet
+        );
+
+        const trustHasInjectedTron = Boolean(
+          window?.trustwallet?.tron?.tronWeb ||
+          window?.trustwallet?.tron?.sunWeb ||
+          window?.trustwallet?.tronLink?.tronWeb ||
+          window?.trustwallet?.tronLink?.sunWeb ||
+          window?.trustwallet?.web3?.tron?.tronWeb ||
+          window?.trustwallet?.web3?.tron?.sunWeb ||
+          window?.trustwallet?.tronWeb ||
+          window?.trustwallet?.sunWeb ||
+          window?.trustWallet?.tron?.tronWeb ||
+          window?.trustWallet?.tron?.sunWeb ||
+          window?.trustWallet?.tronLink?.tronWeb ||
+          window?.trustWallet?.tronLink?.sunWeb ||
+          window?.trustWallet?.web3?.tron?.tronWeb ||
+          window?.trustWallet?.web3?.tron?.sunWeb ||
+          window?.trustWallet?.tronWeb ||
+          window?.trustWallet?.sunWeb
+        );
+
+        if (walletType === 'trust' && trustRootsPresent && !trustHasInjectedTron) {
+          connectType = 'trust_mobile';
+        }
+
+        const result = await wallet.connect(connectType);
 
         if (result?.mode === 'redirect' || result?.pending === true) {
           resetPendingModalState();
           resolve(result);
+          return;
+        }
+
+        if (result?.mode === 'embedded-no-tron-provider') {
+          isConnecting = false;
+          btn.innerHTML = originalHtml;
+          enableAllWalletButtons(walletButtons);
+          showError(
+            result?.message ||
+            'Trust Wallet browser is open, but a TRON provider is not exposed in this environment.'
+          );
           return;
         }
 
@@ -638,10 +679,10 @@ export async function openConnectModal() {
 
   pendingPromise = new Promise((resolve, reject) => {
     const available = getWalletOptions()
-  .filter((item) => item.type !== 'trust_mobile')
-  .filter((item) => FALLBACK_WALLET_ORDER.includes(item.type))
-  .filter((item) => item.detected)
-  .map((item) => item.type);
+      .filter((item) => item.type !== 'trust_mobile')
+      .filter((item) => FALLBACK_WALLET_ORDER.includes(item.type))
+      .filter((item) => item.detected)
+      .map((item) => item.type);
 
     createWalletModal(available, resolve, reject);
   }).finally(() => {
