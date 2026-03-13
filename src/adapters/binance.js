@@ -32,15 +32,48 @@ function normalizeAddress(value) {
   return null;
 }
 
+function isBinanceLikeProvider(provider) {
+  if (!provider || typeof provider !== 'object') {
+    return false;
+  }
+
+  return Boolean(
+    provider?.isBinance ||
+    provider?.isBinanceWallet ||
+    provider?.isBinanceChain ||
+    provider?.constructor?.name === 'BinanceChain'
+  );
+}
+
+function isTronCapableBinanceProvider(provider) {
+  if (!provider || typeof provider !== 'object') {
+    return false;
+  }
+
+  return Boolean(
+    provider?.tronWeb ||
+    provider?.tron ||
+    typeof provider?.getAccount === 'function' ||
+    typeof provider?.request === 'function' ||
+    typeof provider?.signTransaction === 'function'
+  );
+}
+
 function getLegacyBinanceProvider() {
   if (!isBrowser()) return null;
 
-  if (window.BinanceChain?.tron) {
-    return window.BinanceChain.tron;
+  const provider = window.BinanceChain;
+
+  if (!provider) {
+    return null;
   }
 
-  if (window.BinanceChain) {
-    return window.BinanceChain;
+  if (provider?.tron && isTronCapableBinanceProvider(provider.tron)) {
+    return provider.tron;
+  }
+
+  if (isBinanceLikeProvider(provider) && isTronCapableBinanceProvider(provider)) {
+    return provider;
   }
 
   return null;
@@ -49,8 +82,12 @@ function getLegacyBinanceProvider() {
 export function getBinanceProvider() {
   if (!isBrowser()) return null;
 
-  if (window.binancew3w?.tron) {
+  if (window.binancew3w?.tron && isTronCapableBinanceProvider(window.binancew3w.tron)) {
     return window.binancew3w.tron;
+  }
+
+  if (window.binancew3w && isBinanceLikeProvider(window.binancew3w) && isTronCapableBinanceProvider(window.binancew3w)) {
+    return window.binancew3w;
   }
 
   return getLegacyBinanceProvider();
@@ -97,8 +134,9 @@ async function readAddressFromProvider(provider) {
       provider.address ||
       provider.selectedAddress ||
       provider.defaultAddress?.base58 ||
+      provider.defaultAddress?.address ||
       provider.tronWeb?.defaultAddress?.base58 ||
-      window?.tronWeb?.defaultAddress?.base58 ||
+      provider.tronWeb?.defaultAddress?.address ||
       null;
 
     return normalizeAddress(fallback);
@@ -115,7 +153,9 @@ export function createBinanceTronWeb(provider, address, fullHost = DEFAULT_FULL_
 
   const injectedTronWeb =
     provider.tronWeb ||
-    (window?.tronWeb?.defaultAddress?.base58 === address ? window.tronWeb : null);
+    provider.sunWeb ||
+    provider.web3?.tronWeb ||
+    null;
 
   if (injectedTronWeb) {
     try {
@@ -191,7 +231,22 @@ export function createBinanceTronWeb(provider, address, fullHost = DEFAULT_FULL_
 }
 
 export function detectBinance() {
-  return !!getBinanceProvider();
+  const provider = getBinanceProvider();
+  if (!provider) return false;
+
+  const hasOwnTronWeb = Boolean(
+    provider?.tronWeb ||
+    provider?.sunWeb ||
+    provider?.web3?.tronWeb
+  );
+
+  const hasOwnTronMethods = Boolean(
+    typeof provider?.getAccount === 'function' ||
+    typeof provider?.request === 'function' ||
+    typeof provider?.signTransaction === 'function'
+  );
+
+  return hasOwnTronWeb || hasOwnTronMethods;
 }
 
 export async function connectBinance() {
