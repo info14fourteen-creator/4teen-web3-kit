@@ -26,37 +26,75 @@ function isMobileDevice() {
   return isIOS() || isAndroid();
 }
 
-function isTrustWalletBrandPresent(win = getWindowSafe()) {
-  if (!win) return false;
+function getTrustRoots(win = getWindowSafe()) {
+  if (!win) return [];
+
+  return [
+    win.trustwallet,
+    win.trustWallet
+  ].filter(Boolean);
+}
+
+function isTrustRoot(root) {
+  if (!root || typeof root !== 'object') return false;
 
   return Boolean(
-    win.trustwallet ||
-    win.trustWallet ||
-    win.trustwalletTon ||
-    win.TronWebProto ||
-    win.ethereum?.isTrust ||
-    /Trust|TrustWallet/i.test(getUserAgent())
+    root.isTrustWallet === true ||
+    root.isTrust === true ||
+    root.ethereum?.isTrustWallet === true ||
+    root.ethereum?.isTrust === true
   );
 }
 
+function getEmbeddedTrustProvider(win = getWindowSafe()) {
+  const roots = getTrustRoots(win);
+
+  for (const root of roots) {
+    if (!isTrustRoot(root)) {
+      continue;
+    }
+
+    const candidates = [
+      root.tron,
+      root.tronLink,
+      root.web3?.tron,
+      root
+    ].filter(Boolean);
+
+    for (const candidate of candidates) {
+      const hasTronShape = Boolean(
+        candidate?.tronWeb ||
+        candidate?.sunWeb ||
+        candidate?.web3?.tronWeb ||
+        typeof candidate?.request === 'function' ||
+        typeof candidate?.connect === 'function' ||
+        typeof candidate?.on === 'function'
+      );
+
+      if (hasTronShape) {
+        return candidate;
+      }
+    }
+  }
+
+  return null;
+}
+
 function hasInjectedTronProvider(win = getWindowSafe()) {
-  if (!win) return false;
+  const provider = getEmbeddedTrustProvider(win);
 
   return Boolean(
-    win.tronWeb?.defaultAddress?.base58 ||
-    win.tronWeb?.defaultAddress?.address
+    provider?.tronWeb?.defaultAddress?.base58 ||
+    provider?.tronWeb?.defaultAddress?.address ||
+    provider?.sunWeb?.defaultAddress?.base58 ||
+    provider?.sunWeb?.defaultAddress?.address ||
+    provider?.web3?.tronWeb?.defaultAddress?.base58 ||
+    provider?.web3?.tronWeb?.defaultAddress?.address
   );
 }
 
 function isEmbeddedTrustBrowser(win = getWindowSafe()) {
-  if (!win) return false;
-
-  return Boolean(
-    win.trustwallet ||
-    win.trustWallet ||
-    win.trustwalletTon ||
-    win.TronWebProto
-  );
+  return Boolean(getEmbeddedTrustProvider(win));
 }
 
 function getSessionStorageSafe() {
@@ -122,14 +160,16 @@ export function detectTrustMobile() {
     return false;
   }
 
-  if (!isTrustWalletBrandPresent(win)) {
+  const embedded = isEmbeddedTrustBrowser(win);
+
+  if (!embedded) {
     return false;
   }
 
   return {
     installed: true,
     mobile: true,
-    inWalletBrowser: isEmbeddedTrustBrowser(win),
+    inWalletBrowser: true,
     hasInjectedTronProvider: hasInjectedTronProvider(win),
     pending: hasTrustMobilePending()
   };
@@ -173,29 +213,24 @@ function navigateTo(url) {
 
 export async function connectTrustMobile(options = {}) {
   const detected = detectTrustMobile();
-
-  if (!detected) {
-    throw new Error('Trust Wallet mobile environment not detected');
-  }
-
   const currentUrl = options.currentUrl || getCurrentPageUrl();
   const urls = getTrustMobileOpenUrls(currentUrl);
 
-  if (detected.hasInjectedTronProvider) {
-    clearTrustMobilePending();
+  if (detected) {
+    if (detected.hasInjectedTronProvider) {
+      clearTrustMobilePending();
 
-    return {
-      walletType: 'trust_mobile',
-      mode: 'ready-injected-provider',
-      pending: false,
-      mobile: true,
-      inWalletBrowser: detected.inWalletBrowser,
-      hasInjectedTronProvider: true,
-      currentUrl
-    };
-  }
+      return {
+        walletType: 'trust_mobile',
+        mode: 'ready-injected-provider',
+        pending: false,
+        mobile: true,
+        inWalletBrowser: true,
+        hasInjectedTronProvider: true,
+        currentUrl
+      };
+    }
 
-  if (detected.inWalletBrowser) {
     clearTrustMobilePending();
 
     return {
@@ -206,8 +241,14 @@ export async function connectTrustMobile(options = {}) {
       inWalletBrowser: true,
       hasInjectedTronProvider: false,
       currentUrl,
+      openUrl: urls.universal,
+      fallbackUrl: urls.scheme,
       message: 'Trust Wallet browser is open, but a TRON provider is not exposed in this environment.'
     };
+  }
+
+  if (!isMobileDevice()) {
+    throw new Error('Trust Wallet mobile environment not detected');
   }
 
   markTrustMobilePending(currentUrl);
