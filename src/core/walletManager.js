@@ -21,7 +21,7 @@ let lastRefreshPromise = null;
 let connectRequestId = 0;
 let trustRestoreWatcherStarted = false;
 
-const WALLET_MANAGER_BUILD = 'wm-trust-mobile-flow-v4';
+const WALLET_MANAGER_BUILD = 'wm-trust-mobile-flow-v5';
 const TRUST_PENDING_KEY = 'fourteen:trust:pending-connect';
 
 function getWindowSafe() {
@@ -349,16 +349,38 @@ function applyRedirectFlow(result, requestId) {
   return result;
 }
 
+function applyInfoFlow(result, requestId) {
+  if (requestId !== connectRequestId) {
+    return result;
+  }
+
+  setState({
+    walletType: result.walletType || 'trust_mobile',
+    connected: false,
+    connecting: false,
+    address: null,
+    shortAddress: null,
+    tronWeb: null,
+    provider: null,
+    balanceTRX: null,
+    isReady: false,
+    lastError: null
+  });
+
+  emit('info', result);
+  return result;
+}
+
 function resolveWalletMap(wallets) {
   const trustInjectedReady = !!getInjectedTrustAddress();
 
   if (isTrustInAppBrowser()) {
-    if (wallets.trust_mobile && !trustInjectedReady) {
-      return { trust_mobile: true };
-    }
-
     if (wallets.trust && trustInjectedReady) {
       return { trust: true };
+    }
+
+    if (wallets.trust_mobile && !trustInjectedReady) {
+      return { trust_mobile: true };
     }
   }
 
@@ -528,7 +550,7 @@ export function getAvailableWalletOptionsSafe() {
       detected: Boolean(wallets[item.id])
     }))
     .filter((item) => {
-      if (item.id === 'trust_mobile' && !wallets.trust_mobile) {
+      if (item.id === 'trust_mobile') {
         return false;
       }
 
@@ -598,6 +620,25 @@ export async function connect(walletType) {
         },
         requestId
       );
+    }
+
+    if (result?.mode === 'embedded-no-tron-provider') {
+      return applyInfoFlow(
+        {
+          ...result,
+          walletType: result.walletType || resolvedWalletType
+        },
+        requestId
+      );
+    }
+
+    if (result?.mode === 'ready-injected-provider') {
+      const restored = await restoreTrustConnectionIfPossible('trust-mobile-ready-provider');
+      if (restored?.connected) {
+        return restored;
+      }
+
+      throw new Error('Trust Wallet provider became available, but connection restore failed');
     }
 
     if (!result?.address || !result?.tronWeb) {
