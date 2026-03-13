@@ -21,7 +21,7 @@ let lastRefreshPromise = null;
 let connectRequestId = 0;
 let trustRestoreWatcherStarted = false;
 
-const WALLET_MANAGER_BUILD = 'wm-trust-mobile-flow-v5';
+const WALLET_MANAGER_BUILD = 'wm-trust-mobile-flow-v6';
 const TRUST_PENDING_KEY = 'fourteen:trust:pending-connect';
 
 function getWindowSafe() {
@@ -51,7 +51,11 @@ function isTrustInAppBrowser() {
   const ua = getUserAgent();
   const win = getWindowSafe();
 
-  return /Trust|TrustWallet/i.test(ua) || !!win?.trustwallet || !!win?.trustWallet;
+  return Boolean(
+    win?.trustwallet ||
+    win?.trustWallet ||
+    /Trust|TrustWallet/i.test(ua)
+  );
 }
 
 function isOKXInAppBrowser() {
@@ -106,28 +110,54 @@ function getInjectedTrustProvider() {
   const win = getWindowSafe();
   if (!win) return null;
 
-  return (
-    win.trustwallet?.tron ||
-    win.trustwallet?.tronLink ||
-    win.trustwallet?.web3?.tron ||
-    win.trustwallet ||
-    win.trustWallet?.tron ||
-    win.trustWallet?.tronLink ||
-    win.trustWallet?.web3?.tron ||
-    win.trustWallet ||
-    null
-  );
+  const roots = [
+    win.trustwallet,
+    win.trustWallet
+  ].filter(Boolean);
+
+  for (const root of roots) {
+    const candidates = [
+      root?.tron,
+      root?.tronLink,
+      root?.web3?.tron,
+      root
+    ].filter(Boolean);
+
+    for (const candidate of candidates) {
+      const hasTrustFlag = Boolean(
+        root?.isTrustWallet === true ||
+        root?.isTrust === true ||
+        root?.ethereum?.isTrustWallet === true ||
+        root?.ethereum?.isTrust === true ||
+        candidate?.isTrustWallet === true ||
+        candidate?.isTrust === true
+      );
+
+      const hasTronShape = Boolean(
+        candidate?.tronWeb ||
+        candidate?.sunWeb ||
+        candidate?.web3?.tronWeb ||
+        typeof candidate?.request === 'function' ||
+        typeof candidate?.connect === 'function' ||
+        typeof candidate?.on === 'function'
+      );
+
+      if (hasTrustFlag && hasTronShape) {
+        return candidate;
+      }
+    }
+  }
+
+  return null;
 }
 
 function getInjectedTrustTronWeb() {
-  const win = getWindowSafe();
   const provider = getInjectedTrustProvider();
 
   return (
     provider?.tronWeb ||
     provider?.sunWeb ||
     provider?.web3?.tronWeb ||
-    win?.tronWeb ||
     null
   );
 }
@@ -141,6 +171,8 @@ function getInjectedTrustAddress() {
     tronWeb?.defaultAddress?.address ||
     provider?.selectedAddress ||
     provider?.address ||
+    provider?.defaultAddress?.base58 ||
+    provider?.defaultAddress?.address ||
     null
   );
 }
@@ -372,7 +404,7 @@ function applyInfoFlow(result, requestId) {
 }
 
 function resolveWalletMap(wallets) {
-  const trustInjectedReady = !!getInjectedTrustAddress();
+  const trustInjectedReady = Boolean(getInjectedTrustAddress());
 
   if (isTrustInAppBrowser()) {
     if (wallets.trust && trustInjectedReady) {
@@ -382,6 +414,8 @@ function resolveWalletMap(wallets) {
     if (wallets.trust_mobile && !trustInjectedReady) {
       return { trust_mobile: true };
     }
+
+    return {};
   }
 
   if (wallets.okx && isOKXInAppBrowser()) {
@@ -406,11 +440,12 @@ function getDetectedWalletList(wallets) {
 }
 
 function resolvePreferredInAppWallet(wallets) {
-  const trustInjectedReady = !!getInjectedTrustAddress();
+  const trustInjectedReady = Boolean(getInjectedTrustAddress());
 
   if (isTrustInAppBrowser()) {
     if (wallets.trust && trustInjectedReady) return 'trust';
     if (wallets.trust_mobile && !trustInjectedReady) return 'trust_mobile';
+    return null;
   }
 
   if (wallets.okx && isOKXInAppBrowser()) return 'okx';
@@ -549,13 +584,7 @@ export function getAvailableWalletOptionsSafe() {
       ...item,
       detected: Boolean(wallets[item.id])
     }))
-    .filter((item) => {
-      if (item.id === 'trust_mobile') {
-        return false;
-      }
-
-      return true;
-    });
+    .filter((item) => item.id !== 'trust_mobile');
 }
 
 export function getWalletAdapterTypes() {
@@ -570,13 +599,13 @@ export async function autoDetectWallet() {
     return null;
   }
 
-  if (available.length === 1) {
-    return available[0];
-  }
-
   const preferred = resolvePreferredInAppWallet(wallets);
   if (preferred) {
     return preferred;
+  }
+
+  if (available.length === 1) {
+    return available[0];
   }
 
   if (wallets.tronlink) return 'tronlink';
