@@ -638,9 +638,10 @@ export async function openConnectModal() {
 
   pendingPromise = new Promise((resolve, reject) => {
     const available = getWalletOptions()
-      .filter((item) => item.type !== 'trust_mobile')
-      .filter((item) => FALLBACK_WALLET_ORDER.includes(item.type))
-      .map((item) => item.type);
+  .filter((item) => item.type !== 'trust_mobile')
+  .filter((item) => FALLBACK_WALLET_ORDER.includes(item.type))
+  .filter((item) => item.detected)
+  .map((item) => item.type);
 
     createWalletModal(available, resolve, reject);
   }).finally(() => {
