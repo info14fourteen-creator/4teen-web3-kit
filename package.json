@@ -22,11 +22,11 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/info14fourteen-creator/4teen-unified.git"
+    "url": "https://github.com/info14fourteen-creator/4teen-web3-kit.git"
   },
-  "homepage": "https://github.com/info14fourteen-creator/4teen-unified",
+  "homepage": "https://github.com/info14fourteen-creator/4teen-web3-kit",
   "bugs": {
-    "url": "https://github.com/info14fourteen-creator/4teen-unified/issues"
+    "url": "https://github.com/info14fourteen-creator/4teen-web3-kit/issues"
   },
   "keywords": [
     "4teen",
