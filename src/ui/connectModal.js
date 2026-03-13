@@ -188,15 +188,30 @@ function normalizeConnectResult(result, walletType) {
 function createBaseButton() {
   const btn = document.createElement('button');
   btn.type = 'button';
-  btn.className = 'fw-wallet-btn';
+  btn.style.width = '100%';
+  btn.style.display = 'flex';
+  btn.style.alignItems = 'center';
+  btn.style.justifyContent = 'space-between';
+  btn.style.gap = '12px';
+  btn.style.padding = '14px 16px';
+  btn.style.borderRadius = '14px';
+  btn.style.border = '1px solid rgba(255,255,255,0.10)';
+  btn.style.background = '#181818';
+  btn.style.color = '#ffffff';
+  btn.style.fontSize = '15px';
+  btn.style.fontWeight = '600';
+  btn.style.cursor = 'pointer';
+  btn.style.textAlign = 'left';
+  btn.style.transition = 'all 0.18s ease';
+  btn.style.outline = 'none';
   return btn;
 }
 
 function setButtonIdleStyles(btn) {
   btn.style.opacity = '1';
   btn.style.cursor = 'pointer';
-  btn.style.background = '';
-  btn.style.borderColor = '';
+  btn.style.background = '#181818';
+  btn.style.borderColor = 'rgba(255,255,255,0.10)';
 }
 
 function setButtonBusyStyles(btn) {
@@ -241,27 +256,31 @@ function buildWalletButtonHtml(walletType, available) {
   }
 
   return `
-    <div class="fw-wallet-left">
-      <div class="fw-wallet-icon">${getWalletIcon(walletType)}</div>
-      <div>
-        <div class="fw-wallet-name">${prettyWalletName(walletType)}</div>
-        <div class="fw-wallet-desc">${desc}</div>
+    <div style="display:flex; align-items:center; gap:12px; min-width:0;">
+      <div style="font-size:20px; flex-shrink:0;">${getWalletIcon(walletType)}</div>
+      <div style="min-width:0;">
+        <div style="font-size:15px; font-weight:700; color:#fff;">${prettyWalletName(walletType)}</div>
+        <div style="font-size:12px; color:rgba(255,255,255,0.55); margin-top:4px;">${desc}</div>
       </div>
     </div>
-    <div class="fw-wallet-status ${available ? 'available' : 'manual'}">${status}</div>
+    <div style="font-size:12px; color:${available ? '#86efac' : 'rgba(255,255,255,0.45)'}; flex-shrink:0;">
+      ${status}
+    </div>
   `;
 }
 
 function buildConnectingButtonHtml(walletType) {
   return `
-    <div class="fw-wallet-left">
-      <div class="fw-wallet-icon">${getWalletIcon(walletType)}</div>
-      <div>
-        <div class="fw-wallet-name">Connecting ${prettyWalletName(walletType)}...</div>
-        <div class="fw-wallet-desc">Please confirm in wallet</div>
+    <div style="display:flex; align-items:center; gap:12px; min-width:0;">
+      <div style="font-size:20px; flex-shrink:0;">${getWalletIcon(walletType)}</div>
+      <div style="min-width:0;">
+        <div style="font-size:15px; font-weight:700; color:#fff;">Connecting ${prettyWalletName(walletType)}...</div>
+        <div style="font-size:12px; color:rgba(255,255,255,0.55); margin-top:4px;">Please confirm in wallet</div>
       </div>
     </div>
-    <div class="fw-wallet-status manual">Waiting</div>
+    <div style="font-size:12px; color:rgba(255,255,255,0.45); flex-shrink:0;">
+      Waiting
+    </div>
   `;
 }
 
@@ -371,40 +390,84 @@ function createWalletModal(options, resolve, reject) {
 
   const overlay = document.createElement('div');
   overlay.id = 'fourteenWalletModal';
+  overlay.style.position = 'fixed';
+  overlay.style.inset = '0';
+  overlay.style.background = 'rgba(0,0,0,0.72)';
+  overlay.style.backdropFilter = 'blur(4px)';
+  overlay.style.webkitBackdropFilter = 'blur(4px)';
+  overlay.style.zIndex = '999999';
+  overlay.style.display = 'flex';
+  overlay.style.alignItems = 'center';
+  overlay.style.justifyContent = 'center';
+  overlay.style.padding = '20px';
 
   const box = document.createElement('div');
-  box.className = 'fw-modal';
+  box.style.width = '100%';
+  box.style.maxWidth = '420px';
+  box.style.background = '#0f0f0f';
+  box.style.border = '1px solid rgba(255,255,255,0.08)';
+  box.style.borderRadius = '20px';
+  box.style.boxShadow = '0 24px 70px rgba(0,0,0,0.45)';
+  box.style.padding = '22px';
 
   const header = document.createElement('div');
-  header.className = 'fw-header';
+  header.style.display = 'flex';
+  header.style.alignItems = 'center';
+  header.style.justifyContent = 'space-between';
+  header.style.gap = '12px';
+  header.style.marginBottom = '10px';
 
   const titleWrap = document.createElement('div');
 
   const title = document.createElement('div');
-  title.className = 'fw-title';
   title.textContent = 'Select Wallet';
+  title.style.color = '#ffffff';
+  title.style.fontSize = '20px';
+  title.style.fontWeight = '700';
+  title.style.lineHeight = '1.2';
 
   const subtitle = document.createElement('div');
-  subtitle.className = 'fw-subtitle';
   subtitle.textContent = 'Choose the wallet you want to use.';
+  subtitle.style.color = 'rgba(255,255,255,0.68)';
+  subtitle.style.fontSize = '14px';
+  subtitle.style.lineHeight = '1.45';
+  subtitle.style.marginTop = '6px';
 
   titleWrap.appendChild(title);
   titleWrap.appendChild(subtitle);
 
   const closeX = document.createElement('button');
   closeX.type = 'button';
-  closeX.className = 'fw-close';
   closeX.textContent = '×';
+  closeX.style.width = '38px';
+  closeX.style.height = '38px';
+  closeX.style.borderRadius = '12px';
+  closeX.style.border = '1px solid rgba(255,255,255,0.1)';
+  closeX.style.background = 'transparent';
+  closeX.style.color = '#ffffff';
+  closeX.style.fontSize = '24px';
+  closeX.style.lineHeight = '1';
+  closeX.style.cursor = 'pointer';
+  closeX.style.flexShrink = '0';
 
   header.appendChild(titleWrap);
   header.appendChild(closeX);
 
   const list = document.createElement('div');
-  list.className = 'fw-wallet-list';
+  list.style.display = 'grid';
+  list.style.gap = '10px';
+  list.style.marginTop = '18px';
 
   const errorBox = document.createElement('div');
-  errorBox.className = 'fw-error';
   errorBox.style.display = 'none';
+  errorBox.style.marginTop = '14px';
+  errorBox.style.padding = '12px 14px';
+  errorBox.style.borderRadius = '12px';
+  errorBox.style.background = 'rgba(127,29,29,0.28)';
+  errorBox.style.border = '1px solid rgba(239,68,68,0.24)';
+  errorBox.style.color = '#fecaca';
+  errorBox.style.fontSize = '13px';
+  errorBox.style.lineHeight = '1.45';
 
   function closeModalWithError(message) {
     removeWalletModal();
@@ -492,18 +555,32 @@ function createWalletModal(options, resolve, reject) {
   });
 
   const footer = document.createElement('div');
-  footer.className = 'fw-footer';
+  footer.style.marginTop = '16px';
+  footer.style.display = 'flex';
+  footer.style.justifyContent = 'space-between';
+  footer.style.alignItems = 'center';
+  footer.style.gap = '10px';
 
   const hint = document.createElement('div');
-  hint.className = 'fw-hint';
+  hint.style.fontSize = '12px';
+  hint.style.lineHeight = '1.4';
+  hint.style.color = 'rgba(255,255,255,0.48)';
+  hint.style.flex = '1';
   hint.textContent = isMobileDevice()
     ? 'On mobile you can open the wallet app or install it.'
     : 'If a wallet is not installed, the install page will open.';
 
   const closeBtn = document.createElement('button');
   closeBtn.type = 'button';
-  closeBtn.className = 'fw-close-btn';
   closeBtn.textContent = 'Close';
+  closeBtn.style.padding = '11px 14px';
+  closeBtn.style.borderRadius = '12px';
+  closeBtn.style.border = '1px solid rgba(255,255,255,0.10)';
+  closeBtn.style.background = 'transparent';
+  closeBtn.style.color = 'rgba(255,255,255,0.9)';
+  closeBtn.style.fontSize = '14px';
+  closeBtn.style.fontWeight = '600';
+  closeBtn.style.cursor = 'pointer';
 
   footer.appendChild(hint);
   footer.appendChild(closeBtn);
