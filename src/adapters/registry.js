@@ -22,6 +22,12 @@ import {
   subscribeTrustEvents
 } from './trust.js';
 
+import {
+  detectTrustMobile,
+  connectTrustMobile,
+  subscribeTrustMobileEvents
+} from './trust-mobile.js';
+
 const ADAPTERS = [
   {
     id: 'tronlink',
@@ -66,6 +72,17 @@ const ADAPTERS = [
     detect: detectTrust,
     connect: connectTrust,
     subscribe: subscribeTrustEvents
+  },
+  {
+    id: 'trust_mobile',
+    label: 'Trust Wallet Mobile',
+    shortLabel: 'Trust Mobile',
+    icon: '🔵',
+    order: 41,
+    installUrl: 'https://trustwallet.com/',
+    detect: detectTrustMobile,
+    connect: connectTrustMobile,
+    subscribe: subscribeTrustMobileEvents
   }
 ];
 
@@ -100,6 +117,16 @@ function normalizeDetectResult(adapterId, value) {
 
     if (adapterId === 'trust') {
       return Boolean(value.installed || value.ready || value.provider || value.tronWeb);
+    }
+
+    if (adapterId === 'trust_mobile') {
+      return Boolean(
+        value.installed ||
+        value.ready ||
+        value.mobile ||
+        value.inWalletBrowser ||
+        value.pending
+      );
     }
   }
 
