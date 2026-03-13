@@ -7,6 +7,18 @@ function getUserAgent() {
   return navigator.userAgent || '';
 }
 
+function isIOS() {
+  return /iPhone|iPad|iPod/i.test(getUserAgent());
+}
+
+function isAndroid() {
+  return /Android/i.test(getUserAgent());
+}
+
+function isMobileDevice() {
+  return isIOS() || isAndroid();
+}
+
 function isOKXInAppBrowser() {
   const win = getWindowSafe();
   const ua = getUserAgent();
@@ -32,8 +44,11 @@ function isTrustInAppBrowser() {
   const win = getWindowSafe();
 
   return Boolean(
-    win?.trustwallet ||
-    win?.trustWallet
+    isMobileDevice() &&
+    (
+      win?.trustwallet ||
+      win?.trustWallet
+    )
   );
 }
 
