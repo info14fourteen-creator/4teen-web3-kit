@@ -452,7 +452,7 @@ export function mountUnlockTimeline({
       buttonEl.textContent = 'CONNECTING...';
       setStatus('Connecting wallet...', false);
 
-      await wallet.connect();
+      await wallet.openConnectModal();
 
       const tronWeb = wallet.getTronWeb();
       if (!tronWeb?.defaultAddress?.base58) {
