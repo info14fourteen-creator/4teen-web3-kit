@@ -19,6 +19,18 @@ function getUserAgent() {
   return navigator.userAgent || '';
 }
 
+function isIOS() {
+  return /iPhone|iPad|iPod/i.test(getUserAgent());
+}
+
+function isAndroid() {
+  return /Android/i.test(getUserAgent());
+}
+
+function isMobileDevice() {
+  return isIOS() || isAndroid();
+}
+
 function isOKXInAppBrowser() {
   const ua = getUserAgent();
   return /OKX|OKApp/i.test(ua) || !!window?.okxwallet;
@@ -31,7 +43,14 @@ function isBinanceInAppBrowser() {
 
 function isTrustInAppBrowser() {
   const ua = getUserAgent();
-  return /Trust|TrustWallet/i.test(ua) || !!window?.trustwallet || !!window?.trustWallet;
+  return Boolean(
+    isMobileDevice() &&
+    (
+      /Trust|TrustWallet/i.test(ua) ||
+      !!window?.trustwallet ||
+      !!window?.trustWallet
+    )
+  );
 }
 
 function prettyWalletName(type) {
