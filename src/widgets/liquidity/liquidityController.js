@@ -416,8 +416,8 @@ export function mountLiquidityController({
       buttonEl.textContent = 'CONNECTING...';
       setStatus('Connecting wallet...');
 
-      await wallet.connect();
-
+await wallet.openConnectModal();
+      
       const tronWeb = await getReadyTronWeb(12000);
       contract = await initContract();
       connected = true;
