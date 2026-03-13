@@ -476,23 +476,7 @@ export async function connectWallet() {
     return pendingPromise;
   }
 
-  const wallet = getWalletApi();
   const available = getAvailableWallets();
-
-  if (available.length === 1) {
-    pendingPromise = (async () => {
-      try {
-        const result = await wallet.connect(available[0]);
-        const connection = normalizeConnectResult(result, available[0]);
-        activeConnection = connection;
-        return connection;
-      } finally {
-        pendingPromise = null;
-      }
-    })();
-
-    return pendingPromise;
-  }
 
   pendingPromise = new Promise((resolve, reject) => {
     createWalletModal(available, resolve, reject);
