@@ -6,24 +6,6 @@ function getWindowSafe() {
   return typeof window !== 'undefined' ? window : null;
 }
 
-function getUserAgent() {
-  if (typeof navigator === 'undefined') return '';
-  return navigator.userAgent || '';
-}
-
-function isTrustEnvironment(win = getWindowSafe()) {
-  if (!win) return false;
-
-  return Boolean(
-    win.trustwallet ||
-    win.trustWallet ||
-    win.trustwalletTon ||
-    win.TronWebProto ||
-    win.ethereum?.isTrust ||
-    /Trust|TrustWallet/i.test(getUserAgent())
-  );
-}
-
 function normalizeAddress(value) {
   if (!value) return null;
 
@@ -54,35 +36,74 @@ function readAddressFromTronWeb(tronWeb) {
   );
 }
 
-function getTrustProvider() {
-  const win = getWindowSafe();
-  if (!win) return null;
+function isTrustLikeObject(obj) {
+  if (!obj || typeof obj !== 'object') return false;
 
-  return (
-    win.trustwallet?.tron ||
-    win.trustwallet?.tronLink ||
-    win.trustwallet?.web3?.tron ||
-    win.trustwalletTon?.tron ||
-    win.trustwalletTon ||
-    win.trustwallet ||
-    win.trustWallet?.tron ||
-    win.trustWallet?.tronLink ||
-    win.trustWallet?.web3?.tron ||
-    win.trustWallet ||
-    null
+  return Boolean(
+    obj.isTrustWallet === true ||
+    obj.isTrust === true ||
+    obj.ethereum?.isTrustWallet === true ||
+    obj.ethereum?.isTrust === true ||
+    obj.tron?.isTrustWallet === true ||
+    obj.tron?.isTrust === true
   );
 }
 
-function getInjectedTrustTronWeb() {
+function isTronCapableProvider(obj) {
+  if (!obj || typeof obj !== 'object') return false;
+
+  return Boolean(
+    obj.tronWeb ||
+    obj.sunWeb ||
+    obj.web3?.tronWeb ||
+    typeof obj.request === 'function' ||
+    typeof obj.connect === 'function' ||
+    typeof obj.on === 'function'
+  );
+}
+
+function getTrustRoots() {
   const win = getWindowSafe();
+  if (!win) return [];
+
+  return [
+    win.trustwallet,
+    win.trustWallet
+  ].filter(Boolean);
+}
+
+function getTrustProvider() {
+  const roots = getTrustRoots();
+
+  for (const root of roots) {
+    if (!isTrustLikeObject(root)) {
+      continue;
+    }
+
+    const candidates = [
+      root.tron,
+      root.tronLink,
+      root.web3?.tron,
+      root
+    ].filter(Boolean);
+
+    for (const candidate of candidates) {
+      if (isTronCapableProvider(candidate)) {
+        return candidate;
+      }
+    }
+  }
+
+  return null;
+}
+
+function getInjectedTrustTronWeb() {
   const provider = getTrustProvider();
 
   return (
     provider?.tronWeb ||
     provider?.sunWeb ||
     provider?.web3?.tronWeb ||
-    win?.tronWeb ||
-    win?.tron?.tronWeb ||
     null
   );
 }
@@ -124,39 +145,7 @@ function patchTronWebAddress(tronWeb, address) {
   return tronWeb;
 }
 
-function createTrustTronWebFromProto(address = null) {
-  const win = getWindowSafe();
-  const Proto = win?.TronWebProto;
-
-  if (!Proto) return null;
-
-  const attempts = [
-    () => new Proto({ fullHost: 'https://api.trongrid.io' }),
-    () => new Proto(),
-    () => Proto({ fullHost: 'https://api.trongrid.io' }),
-    () => Proto()
-  ];
-
-  for (const attempt of attempts) {
-    try {
-      const tronWeb = attempt();
-      if (!tronWeb) continue;
-
-      if (address) {
-        patchTronWebAddress(tronWeb, address);
-      }
-
-      return tronWeb;
-    } catch (_) {}
-  }
-
-  return null;
-}
-
 export function detectTrust() {
-  const win = getWindowSafe();
-  if (!win) return false;
-
   const provider = getTrustProvider();
   const tronWeb = getInjectedTrustTronWeb();
   const address =
@@ -164,13 +153,13 @@ export function detectTrust() {
     getProviderAddress(provider) ||
     null;
 
-  if (!provider && !tronWeb && !isTrustEnvironment(win)) {
+  if (!provider && !tronWeb) {
     return false;
   }
 
   return {
-    installed: Boolean(provider || tronWeb || isTrustEnvironment(win)),
-    ready: Boolean(address),
+    installed: true,
+    ready: Boolean(tronWeb && address),
     address: address || null,
     provider: provider || null,
     tronWeb: tronWeb || null
@@ -218,28 +207,14 @@ async function waitForTrustReady(options = {}) {
   } = options;
 
   const startedAt = Date.now();
-  let protoTronWeb = null;
 
   while (Date.now() - startedAt < timeoutMs) {
     const provider = getTrustProvider();
-    const injectedTronWeb = getInjectedTrustTronWeb();
+    const tronWeb = getInjectedTrustTronWeb();
 
-    const providerAddress = getProviderAddress(provider);
-    const injectedAddress = readAddressFromTronWeb(injectedTronWeb);
-    const knownAddress = injectedAddress || providerAddress || null;
-
-    if (!protoTronWeb && !injectedTronWeb) {
-      protoTronWeb = createTrustTronWebFromProto(knownAddress);
-    }
-
-    if (protoTronWeb && knownAddress && !readAddressFromTronWeb(protoTronWeb)) {
-      patchTronWebAddress(protoTronWeb, knownAddress);
-    }
-
-    const tronWeb = injectedTronWeb || protoTronWeb || null;
     const address =
       readAddressFromTronWeb(tronWeb) ||
-      knownAddress ||
+      getProviderAddress(provider) ||
       null;
 
     if (tronWeb && (!requireAddress || address)) {
@@ -258,16 +233,10 @@ async function waitForTrustReady(options = {}) {
   }
 
   const provider = getTrustProvider();
-  const injectedTronWeb = getInjectedTrustTronWeb();
-  const providerAddress = getProviderAddress(provider);
-  const tronWeb =
-    injectedTronWeb ||
-    createTrustTronWebFromProto(providerAddress) ||
-    null;
-
+  const tronWeb = getInjectedTrustTronWeb();
   const address =
     readAddressFromTronWeb(tronWeb) ||
-    providerAddress ||
+    getProviderAddress(provider) ||
     null;
 
   if (tronWeb && address) {
@@ -307,10 +276,9 @@ export async function connectTrust() {
     });
   }
 
-  let tronWeb =
+  const tronWeb =
     ready.tronWeb ||
     getInjectedTrustTronWeb() ||
-    createTrustTronWebFromProto(requestedAddress) ||
     null;
 
   const address =
@@ -320,12 +288,8 @@ export async function connectTrust() {
     getProviderAddress(provider) ||
     null;
 
-  if (!tronWeb && address) {
-    tronWeb = createTrustTronWebFromProto(address);
-  }
-
   if (!tronWeb) {
-    throw new Error('Trust Wallet tronWeb is not available');
+    throw new Error('Trust Wallet TRON provider is not available');
   }
 
   if (!address) {
@@ -338,7 +302,7 @@ export async function connectTrust() {
     walletType: 'trust',
     address,
     tronWeb,
-    provider: provider || tronWeb
+    provider: provider || null
   };
 }
 
