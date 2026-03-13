@@ -108,15 +108,28 @@ function normalizeDetectResult(adapterId, value) {
     }
 
     if (adapterId === 'okx') {
-      return Boolean(value.installed || value.ready || value.provider || value.tronWeb);
+      return Boolean(
+        value.installed ||
+        value.ready ||
+        value.provider ||
+        value.tronWeb
+      );
     }
 
     if (adapterId === 'binance') {
-      return Boolean(value.installed || value.ready || value.provider || value.tronWeb);
+      return Boolean(
+        value.installed ||
+        value.ready ||
+        value.provider ||
+        value.tronWeb
+      );
     }
 
     if (adapterId === 'trust') {
-      return Boolean(value.installed || value.ready || value.provider || value.tronWeb);
+      return Boolean(
+        value.provider ||
+        value.tronWeb
+      );
     }
 
     if (adapterId === 'trust_mobile') {
