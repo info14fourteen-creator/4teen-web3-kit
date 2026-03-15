@@ -12,11 +12,7 @@ function getUserAgent() {
 }
 
 function readAddressFromTronWeb(tronWeb) {
-  return (
-    tronWeb?.defaultAddress?.base58 ||
-    tronWeb?.defaultAddress?.address ||
-    null
-  );
+  return tronWeb?.defaultAddress?.base58 || null;
 }
 
 function isOKXEnvironment(win = getWindowSafe()) {
@@ -29,43 +25,45 @@ function isOKXEnvironment(win = getWindowSafe()) {
   );
 }
 
+function isRealTronLinkProvider(provider) {
+  if (!provider) return false;
+
+  return Boolean(
+    provider.tronWeb ||
+    provider.ready ||
+    provider.isTronLink ||
+    provider.constructor?.name === 'TronLink'
+  );
+}
+
 export function getTronLinkProvider() {
   const win = getWindowSafe();
   if (!win) return null;
 
-  // HARD BLOCK: inside OKX browser TronLink must never be treated as separate wallet
   if (isOKXEnvironment(win)) {
     return null;
   }
 
-  return win.tronLink || null;
+  const provider = win.tronLink;
+
+  if (!isRealTronLinkProvider(provider)) {
+    return null;
+  }
+
+  return provider;
 }
 
 export function getTronLinkTronWeb() {
-  const win = getWindowSafe();
-  if (!win) return null;
+  const provider = getTronLinkProvider();
 
-  if (isOKXEnvironment(win)) {
+  if (!provider) {
     return null;
   }
 
-  const provider = getTronLinkProvider();
-
-  if (provider?.tronWeb) {
-    return provider.tronWeb;
-  }
-
-  return null;
+  return provider.tronWeb || null;
 }
 
 export function detectTronLink() {
-  const win = getWindowSafe();
-  if (!win) return false;
-
-  if (isOKXEnvironment(win)) {
-    return false;
-  }
-
   const provider = getTronLinkProvider();
 
   if (!provider) {
@@ -78,9 +76,7 @@ export function detectTronLink() {
   return {
     installed: true,
     ready: Boolean(address),
-    address: address || null,
-    provider,
-    tronWeb: tronWeb || null
+    address: address || null
   };
 }
 
@@ -114,9 +110,7 @@ async function waitForTronLinkReady(options = {}) {
 }
 
 export async function connectTronLink() {
-  const detected = detectTronLink();
-
-  if (!detected) {
+  if (!detectTronLink()) {
     throw new Error('TronLink wallet not found');
   }
 
@@ -130,21 +124,11 @@ export async function connectTronLink() {
     }
   }
 
-  let ready = await waitForTronLinkReady({
+  const ready = await waitForTronLinkReady({
     timeoutMs: 12000,
     delayMs: 200,
     requireAddress: true
   });
-
-  if (!ready.tronWeb || !ready.address) {
-    await sleep(500);
-
-    ready = await waitForTronLinkReady({
-      timeoutMs: 8000,
-      delayMs: 250,
-      requireAddress: true
-    });
-  }
 
   if (!ready.tronWeb) {
     throw new Error('TronLink tronWeb is not available');
