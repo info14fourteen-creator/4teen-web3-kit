@@ -25,15 +25,20 @@ function isOKXEnvironment(win = getWindowSafe()) {
   );
 }
 
-function isRealTronLinkProvider(provider) {
+/*
+Detect real TronLink only.
+Trust / OKX / Binance sometimes expose fake tronLink object.
+*/
+function isRealTronLink(provider) {
   if (!provider) return false;
 
-  return Boolean(
-    provider.tronWeb ||
-    provider.ready ||
-    provider.isTronLink ||
-    provider.constructor?.name === 'TronLink'
-  );
+  if (provider.isTronLink) return true;
+
+  if (provider.tronWeb?.isTronLink) return true;
+
+  if (provider.tronWeb?.ready && provider.tronWeb?.defaultAddress) return true;
+
+  return false;
 }
 
 export function getTronLinkProvider() {
@@ -46,7 +51,7 @@ export function getTronLinkProvider() {
 
   const provider = win.tronLink;
 
-  if (!isRealTronLinkProvider(provider)) {
+  if (!isRealTronLink(provider)) {
     return null;
   }
 
@@ -56,9 +61,7 @@ export function getTronLinkProvider() {
 export function getTronLinkTronWeb() {
   const provider = getTronLinkProvider();
 
-  if (!provider) {
-    return null;
-  }
+  if (!provider) return null;
 
   return provider.tronWeb || null;
 }
@@ -110,7 +113,9 @@ async function waitForTronLinkReady(options = {}) {
 }
 
 export async function connectTronLink() {
-  if (!detectTronLink()) {
+  const detected = detectTronLink();
+
+  if (!detected) {
     throw new Error('TronLink wallet not found');
   }
 
