@@ -41,13 +41,13 @@ function getTrustRoot(win = getWindowSafe()) {
 }
 
 function isTrustBrowser(win = getWindowSafe()) {
-  const root = getTrustRoot(win);
+  if (!win) return false;
 
   return Boolean(
-    root?.isTrustWallet === true ||
-    root?.isTrust === true ||
-    win?.trustwalletTon ||
-    win?.TronWebProto
+    win.trustwallet ||
+    win.trustWallet ||
+    win.trustwalletTon ||
+    win.TronWebProto
   );
 }
 
@@ -76,6 +76,30 @@ function readAddress(tronWeb) {
     tronWeb?.defaultAddress?.address ||
     null
   );
+}
+
+function patchTronWebAddress(tronWeb, address) {
+  if (!tronWeb || !address) return tronWeb;
+
+  try {
+    if (typeof tronWeb.setAddress === 'function') {
+      tronWeb.setAddress(address);
+    } else {
+      const hex =
+        tronWeb.address?.toHex?.(address) ||
+        tronWeb.defaultAddress?.hex ||
+        '';
+
+      tronWeb.defaultAddress = {
+        base58: address,
+        hex
+      };
+    }
+
+    tronWeb.ready = true;
+  } catch (_) {}
+
+  return tronWeb;
 }
 
 function getSessionStorageSafe() {
@@ -137,10 +161,6 @@ export function detectTrustMobile() {
   const win = getWindowSafe();
   if (!win) return false;
 
-  if (!isMobileDevice()) {
-    return false;
-  }
-
   if (!isTrustBrowser(win)) {
     return false;
   }
@@ -200,15 +220,21 @@ async function waitForTrustProvider(timeoutMs = 12000, delayMs = 250) {
     const tronWeb = getInjectedTronWeb();
     const address = readAddress(tronWeb);
 
-    if (tronWeb && address) {
-      try {
-        tronWeb.ready = true;
-      } catch (_) {}
+    if (tronWeb) {
+      if (address) {
+        patchTronWebAddress(tronWeb, address);
+      } else {
+        try {
+          tronWeb.ready = true;
+        } catch (_) {}
+      }
 
-      return {
-        tronWeb,
-        address
-      };
+      if (address) {
+        return {
+          tronWeb,
+          address
+        };
+      }
     }
 
     await sleep(delayMs);
@@ -217,7 +243,9 @@ async function waitForTrustProvider(timeoutMs = 12000, delayMs = 250) {
   const tronWeb = getInjectedTronWeb();
   const address = readAddress(tronWeb);
 
-  if (tronWeb) {
+  if (tronWeb && address) {
+    patchTronWebAddress(tronWeb, address);
+  } else if (tronWeb) {
     try {
       tronWeb.ready = true;
     } catch (_) {}
@@ -262,7 +290,7 @@ export async function connectTrustMobile(options = {}) {
       pending: false,
       mobile: true,
       inWalletBrowser: true,
-      hasInjectedTronProvider: Boolean(getInjectedTronWeb()),
+      hasInjectedTronProvider: Boolean(ready.tronWeb),
       currentUrl,
       openUrl: urls.universal,
       fallbackUrl: urls.scheme,
@@ -341,7 +369,7 @@ export function subscribeTrustMobileEvents({
       return;
     }
 
-    const ready = await waitForTrustProvider(1500, 150);
+    const ready = await waitForTrustProvider(2000, 150);
 
     if (ready.address) {
       await onAccountsChanged(ready.address);
