@@ -7,16 +7,8 @@ function getUserAgent() {
   return navigator.userAgent || '';
 }
 
-function isIOS() {
-  return /iPhone|iPad|iPod/i.test(getUserAgent());
-}
-
-function isAndroid() {
-  return /Android/i.test(getUserAgent());
-}
-
 function isMobileDevice() {
-  return isIOS() || isAndroid();
+  return /iPhone|iPad|iPod|Android/i.test(getUserAgent());
 }
 
 function isOKXInAppBrowser() {
@@ -35,6 +27,7 @@ function isBinanceInAppBrowser() {
 
   return Boolean(
     win?.binancew3w ||
+    win?.BinanceChain ||
     /Binance/i.test(ua)
   );
 }
@@ -51,17 +44,59 @@ function isTrustInAppBrowser() {
   );
 }
 
-export function resolveDetectedWallets(input = {}) {
-  const wallets = {
-    tronlink: Boolean(input.tronlink),
-    okx: Boolean(input.okx),
-    binance: Boolean(input.binance),
-    trust: Boolean(input.trust),
-    generic: Boolean(input.generic)
-  };
+function detectTronLinkExtension(win) {
+  if (!win?.tronLink) return false;
 
-  // inside OKX browser only OKX should exist
-  if (wallets.okx && isOKXInAppBrowser()) {
+  return Boolean(
+    win.tronLink.isTronLink === true ||
+    win.tronLink.tronWeb?.isTronLink === true
+  );
+}
+
+function detectTrustExtension(win) {
+  if (!win) return false;
+
+  const root =
+    win.trustwallet ||
+    win.trustWallet ||
+    null;
+
+  if (!root) return false;
+
+  return Boolean(
+    root.isTrustWallet === true ||
+    root.isTrust === true ||
+    root.tronLink
+  );
+}
+
+function detectBinanceExtension(win) {
+  if (!win) return false;
+
+  return Boolean(
+    win.binancew3w?.tron ||
+    win.BinanceChain?.tron
+  );
+}
+
+function detectOKXExtension(win) {
+  if (!win) return false;
+
+  return Boolean(
+    win.okxwallet?.tron ||
+    win.okxwallet
+  );
+}
+
+export function resolveDetectedWallets(input = {}) {
+  const win = getWindowSafe();
+
+  const tronlink = detectTronLinkExtension(win);
+  const trust = detectTrustExtension(win);
+  const binance = detectBinanceExtension(win);
+  const okx = detectOKXExtension(win);
+
+  if (isOKXInAppBrowser()) {
     return {
       tronlink: false,
       okx: true,
@@ -71,8 +106,7 @@ export function resolveDetectedWallets(input = {}) {
     };
   }
 
-  // inside Binance browser only Binance should exist
-  if (wallets.binance && isBinanceInAppBrowser()) {
+  if (isBinanceInAppBrowser()) {
     return {
       tronlink: false,
       okx: false,
@@ -82,8 +116,7 @@ export function resolveDetectedWallets(input = {}) {
     };
   }
 
-  // inside Trust browser only Trust should exist
-  if (wallets.trust && isTrustInAppBrowser()) {
+  if (isTrustInAppBrowser()) {
     return {
       tronlink: false,
       okx: false,
@@ -93,5 +126,11 @@ export function resolveDetectedWallets(input = {}) {
     };
   }
 
-  return wallets;
+  return {
+    tronlink,
+    okx,
+    binance,
+    trust,
+    generic: false
+  };
 }
