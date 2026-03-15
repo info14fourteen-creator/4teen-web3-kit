@@ -35,7 +35,6 @@ function isBinanceInAppBrowser() {
 
   return Boolean(
     win?.binancew3w ||
-    win?.BinanceChain ||
     /Binance/i.test(ua)
   );
 }
@@ -61,6 +60,7 @@ export function resolveDetectedWallets(input = {}) {
     generic: Boolean(input.generic)
   };
 
+  // inside OKX browser only OKX should exist
   if (wallets.okx && isOKXInAppBrowser()) {
     return {
       tronlink: false,
@@ -71,6 +71,7 @@ export function resolveDetectedWallets(input = {}) {
     };
   }
 
+  // inside Binance browser only Binance should exist
   if (wallets.binance && isBinanceInAppBrowser()) {
     return {
       tronlink: false,
@@ -81,6 +82,7 @@ export function resolveDetectedWallets(input = {}) {
     };
   }
 
+  // inside Trust browser only Trust should exist
   if (wallets.trust && isTrustInAppBrowser()) {
     return {
       tronlink: false,
