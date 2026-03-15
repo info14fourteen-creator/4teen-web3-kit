@@ -426,18 +426,23 @@ function applyInfoFlow(result, requestId) {
 }
 
 function resolveWalletMap(wallets) {
+  const win = getWindowSafe();
+
+  const trustBrowserPresent = Boolean(
+    win?.trustwallet ||
+    win?.trustWallet ||
+    win?.trustwalletTon ||
+    win?.TronWebProto
+  );
+
   const trustInjectedReady = Boolean(getInjectedTrustAddress());
 
-  if (isTrustInAppBrowser()) {
-    if (wallets.trust && trustInjectedReady) {
+  if (trustBrowserPresent) {
+    if (trustInjectedReady) {
       return { trust: true };
     }
 
-    if (wallets.trust_mobile && !trustInjectedReady) {
-      return { trust_mobile: true };
-    }
-
-    return {};
+    return { trust_mobile: true };
   }
 
   if (wallets.okx && isOKXInAppBrowser()) {
@@ -462,12 +467,20 @@ function getDetectedWalletList(wallets) {
 }
 
 function resolvePreferredInAppWallet(wallets) {
+  const win = getWindowSafe();
+
+  const trustBrowserPresent = Boolean(
+    win?.trustwallet ||
+    win?.trustWallet ||
+    win?.trustwalletTon ||
+    win?.TronWebProto
+  );
+
   const trustInjectedReady = Boolean(getInjectedTrustAddress());
 
-  if (isTrustInAppBrowser()) {
-    if (wallets.trust && trustInjectedReady) return 'trust';
-    if (wallets.trust_mobile && !trustInjectedReady) return 'trust_mobile';
-    return null;
+  if (trustBrowserPresent) {
+    if (trustInjectedReady) return 'trust';
+    return 'trust_mobile';
   }
 
   if (wallets.okx && isOKXInAppBrowser()) return 'okx';
