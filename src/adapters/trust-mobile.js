@@ -42,11 +42,12 @@ function getTrustRoot(win = getWindowSafe()) {
 
 function isTrustBrowser(win = getWindowSafe()) {
   const root = getTrustRoot(win);
-  if (!root) return false;
 
   return Boolean(
-    root.isTrustWallet === true ||
-    root.isTrust === true
+    root?.isTrustWallet === true ||
+    root?.isTrust === true ||
+    win?.trustwalletTon ||
+    win?.TronWebProto
   );
 }
 
