@@ -69,7 +69,7 @@ function getTrustRoots() {
   return [
     win.trustwallet,
     win.trustWallet
-  ].filter(Boolean);
+  ].filter(Boolean).filter(isTrustLikeObject);
 }
 
 function getTrustProvider() {
