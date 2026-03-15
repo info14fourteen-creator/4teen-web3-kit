@@ -564,6 +564,19 @@ function ensureTrustRestoreWatcher() {
 export function detectWallets() {
   let wallets = detectWalletMap();
 
+  const win = typeof window !== 'undefined' ? window : null;
+
+  const trustBrowserPresent = Boolean(
+    win?.trustwallet ||
+    win?.trustWallet ||
+    win?.trustwalletTon ||
+    win?.TronWebProto
+  );
+
+  if (trustBrowserPresent) {
+    wallets.trust_mobile = true;
+  }
+
   if (wallets.okx && isOKXInAppBrowser()) {
     wallets.tronlink = false;
   }
