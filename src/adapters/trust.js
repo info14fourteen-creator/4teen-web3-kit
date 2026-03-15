@@ -74,10 +74,11 @@ function getTrustProvider() {
 
   for (const root of roots) {
     const candidates = [
-      root.tron,
-      root.web3?.tron,
-      root
-    ].filter(Boolean);
+  root.tron,
+  root.tronLink,
+  root.web3?.tron,
+  root
+].filter(Boolean);
 
     for (const candidate of candidates) {
       if (hasRealTrustTronWeb(candidate)) {
