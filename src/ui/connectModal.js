@@ -47,6 +47,17 @@ function getWalletIcon(type) {
   return WALLET_META[type]?.icon || '⚪';
 }
 
+function isTrustBrowserPresent() {
+  if (typeof window === 'undefined') return false;
+
+  return Boolean(
+    window?.trustwallet ||
+    window?.trustWallet ||
+    window?.trustwalletTon ||
+    window?.TronWebProto
+  );
+}
+
 function getDetectedWallets() {
   const wallet = getWalletApi();
   const detected = wallet.detectWallets?.() || {};
