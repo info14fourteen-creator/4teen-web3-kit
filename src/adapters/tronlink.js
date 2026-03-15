@@ -12,7 +12,11 @@ function getUserAgent() {
 }
 
 function readAddressFromTronWeb(tronWeb) {
-  return tronWeb?.defaultAddress?.base58 || null;
+  return (
+    tronWeb?.defaultAddress?.base58 ||
+    tronWeb?.defaultAddress?.address ||
+    null
+  );
 }
 
 function isOKXEnvironment(win = getWindowSafe()) {
@@ -29,7 +33,7 @@ export function getTronLinkProvider() {
   const win = getWindowSafe();
   if (!win) return null;
 
-  /* HARD BLOCK: inside OKX browser TronLink must never be treated as separate wallet */
+  // HARD BLOCK: inside OKX browser TronLink must never be treated as separate wallet
   if (isOKXEnvironment(win)) {
     return null;
   }
@@ -46,7 +50,12 @@ export function getTronLinkTronWeb() {
   }
 
   const provider = getTronLinkProvider();
-  return provider?.tronWeb || win.tronWeb || null;
+
+  if (provider?.tronWeb) {
+    return provider.tronWeb;
+  }
+
+  return null;
 }
 
 export function detectTronLink() {
@@ -58,19 +67,20 @@ export function detectTronLink() {
   }
 
   const provider = getTronLinkProvider();
-  const tronWeb = getTronLinkTronWeb();
-  const address = readAddressFromTronWeb(tronWeb);
 
-  const installed = Boolean(provider || tronWeb);
-
-  if (!installed) {
+  if (!provider) {
     return false;
   }
+
+  const tronWeb = getTronLinkTronWeb();
+  const address = readAddressFromTronWeb(tronWeb);
 
   return {
     installed: true,
     ready: Boolean(address),
-    address: address || null
+    address: address || null,
+    provider,
+    tronWeb: tronWeb || null
   };
 }
 
@@ -104,7 +114,9 @@ async function waitForTronLinkReady(options = {}) {
 }
 
 export async function connectTronLink() {
-  if (!detectTronLink()) {
+  const detected = detectTronLink();
+
+  if (!detected) {
     throw new Error('TronLink wallet not found');
   }
 
