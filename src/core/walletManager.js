@@ -21,7 +21,7 @@ let lastRefreshPromise = null;
 let connectRequestId = 0;
 let trustRestoreWatcherStarted = false;
 
-const WALLET_MANAGER_BUILD = 'wm-trust-mobile-flow-v7';
+const WALLET_MANAGER_BUILD = 'wm-trust-mobile-flow-v8';
 const TRUST_PENDING_KEY = 'fourteen:trust:pending-connect';
 
 function getWindowSafe() {
