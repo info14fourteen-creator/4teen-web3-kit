@@ -49,16 +49,13 @@ function isTrustLikeObject(obj) {
   );
 }
 
-function isTronCapableProvider(obj) {
+function hasRealTrustTronWeb(obj) {
   if (!obj || typeof obj !== 'object') return false;
 
   return Boolean(
     obj.tronWeb ||
     obj.sunWeb ||
-    obj.web3?.tronWeb ||
-    typeof obj.request === 'function' ||
-    typeof obj.connect === 'function' ||
-    typeof obj.on === 'function'
+    obj.web3?.tronWeb
   );
 }
 
@@ -76,19 +73,14 @@ function getTrustProvider() {
   const roots = getTrustRoots();
 
   for (const root of roots) {
-    if (!isTrustLikeObject(root)) {
-      continue;
-    }
-
     const candidates = [
       root.tron,
-      root.tronLink,
       root.web3?.tron,
       root
     ].filter(Boolean);
 
     for (const candidate of candidates) {
-      if (isTronCapableProvider(candidate)) {
+      if (hasRealTrustTronWeb(candidate)) {
         return candidate;
       }
     }
@@ -153,16 +145,16 @@ export function detectTrust() {
     getProviderAddress(provider) ||
     null;
 
-  if (!provider && !tronWeb) {
+  if (!provider || !tronWeb) {
     return false;
   }
 
   return {
     installed: true,
-    ready: Boolean(tronWeb && address),
+    ready: Boolean(address),
     address: address || null,
-    provider: provider || null,
-    tronWeb: tronWeb || null
+    provider,
+    tronWeb
   };
 }
 
@@ -179,10 +171,6 @@ async function requestAccounts(provider) {
     async () => {
       if (typeof provider.connect !== 'function') return null;
       return await provider.connect();
-    },
-    async () => {
-      if (typeof provider.request !== 'function') return null;
-      return await provider.request({ method: 'eth_requestAccounts' });
     }
   ];
 
@@ -254,7 +242,7 @@ export async function connectTrust() {
   const detected = detectTrust();
 
   if (!detected) {
-    throw new Error('Trust Wallet not found');
+    throw new Error('Trust Wallet TRON provider is not available');
   }
 
   const provider = getTrustProvider();
