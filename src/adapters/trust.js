@@ -55,7 +55,8 @@ function hasRealTrustTronWeb(obj) {
   return Boolean(
     obj.tronWeb ||
     obj.sunWeb ||
-    obj.web3?.tronWeb
+    obj.web3?.tronWeb ||
+    obj.tronLink
   );
 }
 
