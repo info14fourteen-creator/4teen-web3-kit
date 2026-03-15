@@ -104,12 +104,16 @@ function normalizeDetectResult(adapterId, value) {
 
   if (typeof value === 'object') {
     if (adapterId === 'tronlink') {
-      return Boolean(value.installed || value.ready);
+      return Boolean(
+        value.ready ||
+        value.installed ||
+        value.provider ||
+        value.tronWeb
+      );
     }
 
     if (adapterId === 'okx') {
       return Boolean(
-        value.installed ||
         value.ready ||
         value.provider ||
         value.tronWeb
@@ -118,7 +122,6 @@ function normalizeDetectResult(adapterId, value) {
 
     if (adapterId === 'binance') {
       return Boolean(
-        value.installed ||
         value.ready ||
         value.provider ||
         value.tronWeb
@@ -127,6 +130,7 @@ function normalizeDetectResult(adapterId, value) {
 
     if (adapterId === 'trust') {
       return Boolean(
+        value.ready ||
         value.provider ||
         value.tronWeb
       );
@@ -134,11 +138,12 @@ function normalizeDetectResult(adapterId, value) {
 
     if (adapterId === 'trust_mobile') {
       return Boolean(
-        value.installed ||
-        value.ready ||
-        value.mobile ||
-        value.inWalletBrowser ||
-        value.pending
+        value.mobile &&
+        (
+          value.inWalletBrowser ||
+          value.pending ||
+          value.hasInjectedTronProvider
+        )
       );
     }
   }
